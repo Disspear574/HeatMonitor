@@ -1,0 +1,107 @@
+/* Keys are the Russian source strings; English is the development language. */
+
+/* Window and header */
+"Диспетчер тепла" = "Heat Monitor";
+"Температура CPU" = "CPU temperature";
+"Самое горячее ядро, среднее за 5 секунд" = "Hottest core, 5-second average";
+"пик за 5 с: %@" = "5 s peak: %@";
+"Температура CPU за последние 3 минуты" = "CPU temperature over the last 3 minutes";
+"Тепло" = "Heat";
+"Нагрузка" = "Load";
+"Питание" = "Power";
+"CPU средн." = "CPU avg";
+"Батарея" = "Battery";
+"Трекпад" = "Trackpad";
+"Датчики трекпада: поверхность и привод отклика" = "Trackpad sensors: surface and haptic actuator";
+"Вентиляторы" = "Fans";
+"Вентилятор" = "Fan";
+"нет" = "none";
+"стоят" = "stopped";
+"%.0f об/мин" = "%.0f rpm";
+"CPU · %lld ядер" = "CPU · %lld cores";
+"Доля времени, когда GPU занят. На низкой частоте лёгкая работа даёт десятки процентов; реальную нагрузку показывают ватты" = "Share of time the GPU is busy. At a low clock even light work shows tens of percent; watts show the real load";
+"Память" = "Memory";
+"Диск свободно" = "Disk free";
+"%@ из %@ ГБ" = "%@ of %@ GB";
+"%.1f Вт" = "%.1f W";
+
+/* Thermal state */
+"Частоты не снижены" = "Full speed";
+"Слегка горячо" = "Slightly hot";
+"Оценка macOS: снижает ли система частоты из-за нагрева" = "macOS assessment: whether the system lowers clock speeds because of heat";
+"Горячо — частоты снижаются" = "Hot — clock speeds are lowered";
+"Критично" = "Critical";
+
+/* Power */
+"Заряд" = "Charge";
+"Батарея сейчас" = "Battery now";
+"+%.1f Вт" = "+%.1f W";
+"−%.1f Вт" = "−%.1f W";
+"0 Вт" = "0 W";
+"Потребляет" = "System draw";
+"Адаптер" = "Adapter";
+"%.0f из %ld Вт" = "%.0f of %ld W";
+"не подключён" = "not connected";
+"Здоровье" = "Health";
+"%ld цикл." = "%ld cycles";
+"%ld Вт" = "%ld W";
+"Работает от батареи: Mac берёт %@." = "Running on battery: the Mac draws %@.";
+"Блока питания не хватает: Mac берёт %@, от адаптера приходит %@ из %@ доступных, " = "The power adapter is not enough: the Mac draws %@, the adapter gives %@ of %@ available, ";
+"ещё %.1f Вт идёт из батареи." = "%.1f W more comes from the battery.";
+"Блок питания на пределе: %@ из %@ доступных." = "The power adapter is at its limit: %@ of %@ available.";
+"Быстрая зарядка: от адаптера %@ из %@ доступных, в батарею идёт +%.0f Вт." = "Fast charging: the adapter gives %@ of %@ available, +%.0f W goes to the battery.";
+"Сколько ватт идёт от адаптера и сколько доступно. Доступное Mac согласует с блоком питания: разъём может дать меньше, чем написано на блоке." = "Watts coming from the adapter and watts available. The Mac negotiates what is available with the power adapter: the port can give less than the adapter's label.";
+", запас %.0f Вт" = ", %.0f W to spare";
+"Блока питания хватает: батарея заряжается на +%.1f Вт" = "The power adapter is enough: the battery charges at +%.1f W";
+"Подключено, но не заряжается: оптимизированная зарядка или лимит заряда в настройках." = "Plugged in but not charging: optimized charging or a charge limit in Settings.";
+"Блока питания хватает: доступно %@" = "The power adapter is enough: %@ available";
+
+/* What heats the Mac */
+"графика загружена на %ld%%" = "GPU at %ld%%";
+"процессор загружен на %ld%%" = "CPU at %ld%%";
+"быстрая зарядка +%.0f Вт" = "fast charging +%.0f W";
+"macOS уже снижает частоты" = "macOS is already lowering clock speeds";
+"Нагрузка маленькая — сейчас ничего не греет" = "Load is low — nothing is heating the Mac now";
+"Греет: %@" = "Heating: %@";
+"Что греет Mac" = "What heats the Mac";
+"нагрев = CPU + GPU процесса; на Mac это один чип" = "heat = process CPU + GPU; on a Mac they share one chip";
+"Группировать по приложениям" = "Group by app";
+"Собираю список процессов…" = "Collecting processes…";
+
+/* Process table */
+"Процесс" = "Process";
+"Нагрев" = "Heat";
+"Один из главных источников нагрева" = "One of the main heat sources";
+"Память %@ ГБ" = "Memory %@ GB";
+"%.1f ГБ" = "%.1f GB";
+"%.0f МБ" = "%.0f MB";
+"%ld процессов" = "%ld processes";
+"Столбцы" = "Columns";
+"Найти в интернете, что это" = "Search the web for what this is";
+"Найти в интернете" = "Search the web";
+"Показать в Finder" = "Show in Finder";
+"Завершить «%@»" = "Quit “%@”";
+"Завершить" = "Quit";
+"Выберите процесс в списке, чтобы завершить его. Клик по заголовку столбца меняет сортировку." = "Select a process in the list to quit it. Click a column header to change the sorting.";
+"«%@» — системный процесс, завершить его можно только с правами администратора." = "“%@” is a system process; only an administrator can quit it.";
+"процесс macOS что это и почему грузит систему" = "process macOS what is it and why is it using so much CPU";
+
+/* All sensors */
+"Все датчики…" = "All sensors…";
+"Все датчики" = "All sensors";
+"Все датчики температуры" = "All temperature sensors";
+"Скопировать всё" = "Copy all";
+"Нагрейте Mac, нажмите «Скопировать всё» и пришлите текст — по нему видно, какие датчики есть у этой модели." = "Warm up the Mac, click “Copy all” and send the text — it shows which sensors this model has.";
+"Чип (IOHID)" = "Chip (IOHID)";
+"Читаю датчики…" = "Reading sensors…";
+"Тепловое состояние: %@" = "Thermal state: %@";
+"Чип:" = "Chip:";
+"трекпад" = "trackpad";
+"привод трекпада" = "trackpad actuator";
+"батарея" = "battery";
+"батарея 1" = "battery 1";
+"батарея 2" = "battery 2";
+"поток воздуха слева" = "left airflow";
+"поток воздуха справа" = "right airflow";
+"ядро CPU" = "CPU core";
+"чип" = "chip";

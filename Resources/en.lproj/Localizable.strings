@@ -105,3 +105,12 @@
 "поток воздуха справа" = "right airflow";
 "ядро CPU" = "CPU core";
 "чип" = "chip";
+
+/* Fans */
+"Режим вентиляторов" = "Fan mode";
+"Авто" = "Auto";
+"Макс" = "Max";
+"Макс спрашивает пароль администратора. При выходе из приложения вентиляторы вернутся в Авто." = "Max asks for an administrator password. When the app quits, the fans return to Auto.";
+"Вентиляторы не переключены: пароль не введён." = "Fans were not switched: no password was entered.";
+"Вентиляторы не переключены: %@" = "Fans were not switched: %@";
+"Режим" = "Mode";

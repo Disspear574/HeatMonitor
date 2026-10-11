@@ -58,7 +58,7 @@ final class TempReader {
 // MARK: - SMC: fans and palm rest (missing keys simply read as nil)
 
 final class SMCReader {
-    struct Fan { let rpm: Double; let max: Double }
+    struct Fan { let rpm: Double; let max: Double; let manual: Bool }
     private var conn: io_connect_t = 0
     private var sizes: [String: Int] = [:]
 
@@ -75,7 +75,7 @@ final class SMCReader {
         guard let n = bytes("FNum")?.first, n > 0 else { return [] }
         return (0..<Int(min(n, 4))).compactMap { i in
             guard let rpm = float("F\(i)Ac") else { return nil }
-            return Fan(rpm: rpm, max: float("F\(i)Mx") ?? 0)
+            return Fan(rpm: rpm, max: float("F\(i)Mx") ?? 0, manual: bytes("F\(i)Md")?.first == 1)
         }
     }
 
@@ -556,6 +556,8 @@ final class Monitor: ObservableObject {
     @Published var palmRest: [Double] = []
     @Published var thermal = ProcessInfo.processInfo.thermalState
     @Published var message: String?
+    @Published var fanBusy = false
+    @Published var fanTarget: Bool?
     @Published var grouped = true { didSet { rebuild() } }
     @Published var sortOrder = [KeyPathComparator(\Row.heat, order: .reverse)] { didSet { rebuild() } }
 
@@ -675,6 +677,63 @@ final class Monitor: ObservableObject {
 
     func refreshNow() { refreshSystem() }
 
+    // While it exists, the root watcher from "max" keeps fans at max; deleting it hands them back with no password.
+    private let fanFlag = FileManager.default.temporaryDirectory.appendingPathComponent("heatmonitor-fans-max").path
+
+    func setFans(max: Bool) {
+        guard !fanBusy else { return }
+        fanBusy = true
+        fanTarget = max
+        guard !max, FileManager.default.fileExists(atPath: fanFlag) else { return runFanTool(max: max) }
+        try? FileManager.default.removeItem(atPath: fanFlag)
+        io.async { [smc, weak self] in
+            var tries = 0, manual = true
+            while manual && tries < 30 { usleep(100_000); tries += 1; manual = smc.fans().contains { $0.manual } }
+            Task { @MainActor in
+                if manual { self?.runFanTool(max: false) } else { self?.fanDone() }
+            }
+        }
+    }
+
+    // SMC writes need root; the "max" watcher returns fans to macOS when this app exits, even after a crash.
+    private func runFanTool(max: Bool) {
+        guard let tool = Bundle.main.path(forAuxiliaryExecutable: "heatmonitor-fan") else { return fanDone(ok: false) }
+        func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        // The bracket keeps the pattern from matching osascript, whose arguments contain this very command.
+        let stop = "pkill -f 'heatmonitor-fa[n] watch'; "
+        if max { FileManager.default.createFile(atPath: fanFlag, contents: nil) }
+        let shell = max
+            ? stop + "\(q(tool)) max && (\(q(tool)) watch \(getpid()) \(q(fanFlag)) >/dev/null 2>&1 &)"
+            : stop + "\(q(tool)) auto"
+        let script = "do shell script \"" + shell.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\" with administrator privileges"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", script]
+        p.standardOutput = FileHandle.nullDevice
+        let err = Pipe()
+        p.standardError = err
+        p.terminationHandler = { [weak self] p in
+            let ok = p.terminationStatus == 0
+            let why = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            Task { @MainActor in
+                if max && !ok, let flag = self?.fanFlag { try? FileManager.default.removeItem(atPath: flag) }
+                self?.fanDone(ok: ok)
+                self?.message = ok ? nil : why.contains("-128") ? tr("Вентиляторы не переключены: пароль не введён.")
+                    : String(format: tr("Вентиляторы не переключены: %@"),
+                             why.isEmpty ? "osascript \(p.terminationStatus)" : why.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+        do { try p.run() } catch { fanDone(ok: false) }
+    }
+
+    // On success the switch keeps showing the target until a snapshot confirms it, so it does not flicker back.
+    private func fanDone(ok: Bool = true) {
+        fanBusy = false
+        if !ok { fanTarget = nil }
+        refreshSystem()
+    }
+
     func stop() {
         top?.stop()
         top = nil
@@ -725,6 +784,7 @@ final class Monitor: ObservableObject {
         swap = s.swap
         battery = s.battery
         fans = s.fans
+        if !fanBusy, fanTarget == s.fans.contains(where: \.manual) { fanTarget = nil }
         palmRest = s.palmRest
         if let d = s.disk { disk = d }
         thermal = ProcessInfo.processInfo.thermalState
@@ -971,7 +1031,8 @@ struct Header: View {
                         Stat(title: "Память", value: ofGB(m.memUsed, SystemInfo.totalRAM))
                         Stat(title: "Swap", value: m.swap.total > 0 ? ofGB(m.swap.used, m.swap.total) : tr("нет"))
                         Stat(title: "Диск свободно", value: m.disk.map { ofGB($0.free, $0.total) } ?? "—")
-                            .gridCellColumns(2)
+                            .gridCellColumns(m.fans.isEmpty ? 2 : 1)
+                        if !m.fans.isEmpty { FanSwitch(m: m) }
                     }
                     if let b = m.battery {
                         PowerRow(b: b)
@@ -1002,6 +1063,25 @@ struct Header: View {
         guard let busy = m.gpu else { return "—" }
         let pct = String(format: "%.0f%%", busy)
         return m.gpuWatts.map { pct + " · " + w($0) } ?? pct
+    }
+}
+
+/// Auto or maximum fans; the state comes from the SMC, so another fan app's manual mode shows too.
+struct FanSwitch: View {
+    @ObservedObject var m: Monitor
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Режим").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Picker("Режим вентиляторов", selection: Binding(
+                get: { m.fanTarget ?? m.fans.contains { $0.manual } },
+                set: { m.setFans(max: $0) })) {
+                Text("Авто").tag(false)
+                Text("Макс").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
+            .help("Макс спрашивает пароль администратора. При выходе из приложения вентиляторы вернутся в Авто.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

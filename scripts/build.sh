@@ -14,5 +14,8 @@ fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/en.lproj Resources/ru.lproj "$APP/Contents/Resources/"
+swiftc -O -swift-version 5 -target arm64-apple-macos14.0 \
+  Sources/FanTool/main.swift -o "$APP/Contents/MacOS/heatmonitor-fan"
+codesign -s - --force "$APP/Contents/MacOS/heatmonitor-fan"
 codesign -s - --force "$APP"
 echo "$APP"

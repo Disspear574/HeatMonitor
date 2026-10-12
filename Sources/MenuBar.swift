@@ -102,7 +102,9 @@ struct MenuPanel: View {
             }
             if blocks.contains(.load) {
                 row([("CPU", String(format: "%.0f%%", m.cpuUsage)), ("GPU", m.gpu.map { String(format: "%.0f%%", $0) } ?? "—"),
-                     ("Память", ofGB(m.memUsed, SystemInfo.totalRAM))])
+                     m.swap.used >= 50e6
+                        ? ("Память + swap", String(format: tr("%@ из %@ ГБ + %@ ГБ"), gb(m.memUsed), gbTotal(SystemInfo.totalRAM), gb(m.swap.used)))
+                        : ("Память", ofGB(m.memUsed, SystemInfo.totalRAM))])
             }
             if blocks.contains(.power), let b = m.battery {
                 let s = adapterStatus(b)

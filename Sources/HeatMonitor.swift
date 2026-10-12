@@ -359,7 +359,6 @@ enum SystemInfo {
     }
 }
 
-/// The system power source: the same data the menu bar battery icon shows.
 /// CPU busy share from per-core tick counters, for the label while `top` is not running.
 final class CPULoad: @unchecked Sendable {
     private var last: [UInt32]?
@@ -386,6 +385,7 @@ final class CPULoad: @unchecked Sendable {
     }
 }
 
+/// The system power source: the same data the menu bar battery icon shows.
 struct PowerSource {
     let onAC: Bool
     let charging: Bool?

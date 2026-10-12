@@ -104,7 +104,7 @@ struct MenuPanel: View {
                 row([("CPU", String(format: "%.0f%%", m.cpuUsage)), ("GPU", m.gpu.map { String(format: "%.0f%%", $0) } ?? "—"),
                      m.swap.used >= 50e6
                         ? ("Память + swap", String(format: tr("%@ из %@ ГБ + %@ ГБ"), gb(m.memUsed), gbTotal(SystemInfo.totalRAM), gb(m.swap.used)))
-                        : ("Память", ofGB(m.memUsed, SystemInfo.totalRAM))])
+                        : ("Память", ofGB(m.memUsed, SystemInfo.totalRAM))], lastFills: true)
             }
             if blocks.contains(.power), let b = m.battery {
                 let s = adapterStatus(b)
@@ -141,9 +141,15 @@ struct MenuPanel: View {
         }
     }
 
-    private func row(_ items: [(LocalizedStringKey, String)]) -> some View {
+    private func row(_ items: [(LocalizedStringKey, String)], lastFills: Bool = false) -> some View {
         HStack(spacing: 12) {
-            ForEach(items.indices, id: \.self) { i in Stat(title: items[i].0, value: items[i].1) }
+            ForEach(items.indices, id: \.self) { i in
+                if lastFills && i < items.count - 1 {
+                    Stat(title: items[i].0, value: items[i].1).fixedSize().frame(minWidth: 64, alignment: .leading)
+                } else {
+                    Stat(title: items[i].0, value: items[i].1).frame(maxWidth: lastFills ? .infinity : nil, alignment: .leading)
+                }
+            }
         }
     }
 

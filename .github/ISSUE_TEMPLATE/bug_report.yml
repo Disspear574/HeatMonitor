@@ -1,0 +1,39 @@
+name: Bug report
+description: A wrong reading, a crash or something that does not work
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected and what you saw instead. A screenshot of the window helps.
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac model and chip
+      placeholder: MacBook Air 13" M2
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.3"
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: Heat Monitor version
+      description: Heat Monitor → About Heat Monitor
+      placeholder: "1.9"
+    validations:
+      required: true
+  - type: textarea
+    id: sensors
+    attributes:
+      label: Sensor report
+      description: For a wrong temperature, open All sensors…, click Copy all and paste it here.
+      render: text

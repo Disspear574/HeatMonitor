@@ -22,6 +22,12 @@ Open it, look, close it. No background service, no network access; reading needs
 - **What heats the Mac**: processes or apps sorted by heat (CPU share + GPU share). Right-click
   a row to search the web for it, show it in Finder or quit it.
 - **All sensors**: a raw list of every temperature sensor, with a button that copies a report.
+- **Advice**: checks that run only while the tab is open. WindowServer that has not restarted
+  for days and keeps windows of disconnected displays; background services stuck in a loop;
+  simulators, Android emulators and Gradle or Kotlin daemons left after a build. Your own stuck
+  services and dev tools can be stopped from the tab.
+
+![Advice tab](docs/screenshot-advice-en.png)
 
 ## Install
 
@@ -52,6 +58,7 @@ supported. The interface is in English and Russian and follows the system langua
 | Per-process GPU | GPU time of each `IOAccelerator` user client |
 | Processes | one long-running `top` |
 | Battery and adapter | `AppleSmartBattery` and IOKit power sources |
+| Advice | `ps` every 5 seconds while the tab is open; offscreen windows from `CGWindowListCopyWindowInfo` |
 
 All of these are readable without root. Some are private macOS interfaces, so the app cannot be
 sold in the Mac App Store.
@@ -86,7 +93,8 @@ asks for. Fanless Macs do not show the switch.
 Needs Xcode command line tools. The version lives in `Resources/Info.plist`. The app is signed
 ad-hoc.
 
-- `Sources/HeatMonitor.swift`: the whole app.
+- `Sources/HeatMonitor.swift`: the app window and readings.
+- `Sources/Advice.swift`: the Advice tab.
 - `Sources/FanTool/main.swift`: the root-only fan switch.
 - `Resources/`: Info.plist, icon, `en.lproj` and `ru.lproj` strings.
 - `scripts/`: build, icon and DMG background generators.
@@ -103,7 +111,8 @@ ad-hoc.
 и GPU, какие приложения нагружают чип, память, вентиляторы и хватает ли блока питания.
 Для чтения права администратора не нужны, сеть не используется. Переключатель вентиляторов
 «Авто / Макс» спрашивает пароль администратора; при выходе из приложения вентиляторы
-возвращаются в «Авто».
+возвращаются в «Авто». Вкладка «Советы» находит WindowServer, который давно не перезапускался,
+зависшие фоновые службы и забытые симуляторы, эмуляторы и демоны Gradle.
 
 ![Диспетчер тепла](docs/screenshot-ru.png)
 

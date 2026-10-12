@@ -75,7 +75,7 @@
 "Память %@ ГБ" = "Memory %@ GB";
 "%.1f ГБ" = "%.1f GB";
 "%.0f МБ" = "%.0f MB";
-"%ld процессов" = "%ld processes";
+"процессов: %ld" = "processes: %ld";
 "Столбцы" = "Columns";
 "Найти в интернете, что это" = "Search the web for what this is";
 "Найти в интернете" = "Search the web";
@@ -114,3 +114,34 @@
 "Вентиляторы не переключены: пароль не введён." = "Fans were not switched: no password was entered.";
 "Вентиляторы не переключены: %@" = "Fans were not switched: %@";
 "Режим" = "Mode";
+
+/* Advice tab */
+"Советы" = "Advice";
+"Симуляторы iOS" = "iOS simulators";
+"Эмуляторы Android" = "Android emulators";
+"Демоны Gradle" = "Gradle daemons";
+"Демоны Kotlin" = "Kotlin daemons";
+"Не удалось завершить «%@»." = "Could not stop “%@”.";
+"Не удалось выключить симуляторы: нет xcrun." = "Could not shut down the simulators: xcrun is missing.";
+"%ld д %ld ч" = "%ld d %ld h";
+"%ld ч %ld мин" = "%ld h %ld min";
+"%ld мин" = "%ld min";
+"%@ ГБ" = "%@ GB";
+"Проверки обновляются каждые 5 секунд, пока открыта эта вкладка." = "Checks refresh every 5 seconds while this tab is open.";
+"Остановить всё найденное" = "Stop everything found";
+"Остановить всё найденное?" = "Stop everything found?";
+"Остановить" = "Stop";
+"Отмена" = "Cancel";
+"WindowServer — рисует весь экран" = "WindowServer draws the whole screen";
+"CPU %ld%% · работает %@ · окон от отключённых дисплеев: %ld · дисплеев: %ld" = "CPU %ld%% · running for %@ · windows of disconnected displays: %ld · displays: %ld";
+"В норме." = "Normal.";
+"WindowServer давно не перезапускался и хранит окна дисплеев, которые уже отключены. Такой WindowServer тратит CPU сам по себе: прятать или закрывать приложения бесполезно. Выйдите из системы и войдите снова или перезагрузите Mac." = "WindowServer has not restarted for a long time and keeps windows of displays that are no longer connected. Such a WindowServer uses CPU by itself: hiding or quitting apps does not help. Log out and log in again, or restart the Mac.";
+"WindowServer рисует то, что показывают приложения. Чаще всего его грузят видео, анимации и окна на Electron. Прячьте приложения по одному (⌘H) и смотрите, когда CPU упадёт." = "WindowServer draws what apps show. Video, animations and Electron windows load it most often. Hide apps one by one (⌘H) and watch when the CPU drops.";
+"Зависшие фоновые службы" = "Stuck background services";
+"Служба, которую macOS запускает по запросу, иногда зацикливается и часами грузит процессор. Её можно завершить: macOS запустит её снова, когда она понадобится." = "A service that macOS starts on demand sometimes gets stuck in a loop and loads the CPU for hours. You can stop it: macOS starts it again when it is needed.";
+"Не найдено." = "None found.";
+"сейчас %ld%% · в среднем %ld%% за %@" = "now %ld%% · average %ld%% over %@";
+"системная" = "system";
+"Системную службу может завершить только администратор. Обычно она успокаивается сама: индексация и обновления заканчиваются." = "Only an administrator can stop a system service. It usually calms down by itself when indexing and updates finish.";
+"Забытые процессы разработки" = "Leftover development processes";
+"Симуляторы, эмуляторы Android и демоны Gradle и Kotlin продолжают работать после сборки и держат память и процессор." = "Simulators, Android emulators, and Gradle and Kotlin daemons keep running after a build and hold memory and CPU.";

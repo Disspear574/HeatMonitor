@@ -1238,7 +1238,7 @@ struct ActionBar: View {
             if let row = selected {
                 Image(nsImage: row.icon).resizable().frame(width: 16, height: 16)
                 Text(row.name).lineLimit(1).truncationMode(.middle)
-                Text(row.count > 1 ? String(format: tr("%ld процессов"), row.count) : "PID \(row.pids[0])")
+                Text(row.count > 1 ? String(format: tr("процессов: %ld"), row.count) : "PID \(row.pids[0])")
                     .foregroundStyle(.secondary).textSelection(.enabled)
                 Spacer()
                 Button("Найти в интернете") { m.search(row) }
@@ -1412,6 +1412,22 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Header(m: m)
             Divider()
+            TabView {
+                processes(selected).tabItem { Text("Что греет Mac") }
+                AdviceView().tabItem { Text("Советы") }
+            }
+            .padding(.top, 8)
+        }
+        .frame(minWidth: 880, minHeight: 640)
+        .onChange(of: selection) { _, _ in m.message = nil }
+        .onAppear {
+            if let saved = try? JSONDecoder().decode(TableColumnCustomization<Row>.self, from: storedColumns) { columns = saved }
+        }
+        .onChange(of: columns) { _, c in storedColumns = (try? JSONEncoder().encode(c)) ?? Data() }
+    }
+
+    private func processes(_ selected: Row?) -> some View {
+        VStack(spacing: 0) {
             HStack {
                 Text("Что греет Mac").font(.headline)
                 Text("нагрев = CPU + GPU процесса; на Mac это один чип").font(.caption).foregroundStyle(.secondary)
@@ -1430,12 +1446,6 @@ struct ContentView: View {
             Divider()
             ActionBar(m: m, selected: selected)
         }
-        .frame(minWidth: 880, minHeight: 640)
-        .onChange(of: selection) { _, _ in m.message = nil }
-        .onAppear {
-            if let saved = try? JSONDecoder().decode(TableColumnCustomization<Row>.self, from: storedColumns) { columns = saved }
-        }
-        .onChange(of: columns) { _, c in storedColumns = (try? JSONEncoder().encode(c)) ?? Data() }
     }
 }
 

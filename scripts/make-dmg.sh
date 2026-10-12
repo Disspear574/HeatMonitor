@@ -1,16 +1,15 @@
 #!/bin/zsh
-# Builds build/HeatMonitor-<version>.dmg: background with logo, app -> Applications, custom volume and file icon.
+# Builds build/HeatMonitor.dmg (the version lives in the release tag): background with logo, app -> Applications, custom volume and file icon.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/build.sh >/dev/null
-VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
 VOL="Heat Monitor"
 TMP=build/tmp
 # Outside the home folder: Finder stores the image path in the volume's .DS_Store.
 WORK=$(mktemp -d /tmp/heatmonitor-dmg.XXXXXX)
 STAGE=$WORK/stage
 RW=$WORK/rw.dmg
-OUT=build/HeatMonitor-$VERSION.dmg
+OUT=build/HeatMonitor.dmg
 
 swiftc -O scripts/make-dmg-background.swift -o $TMP/make-dmg-background
 $TMP/make-dmg-background $TMP/bg.png 1 Resources/icon-256.png

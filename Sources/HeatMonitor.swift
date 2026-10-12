@@ -1576,9 +1576,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         update { _, _ in }
     }
 
-    // Opening the app again in Finder or clicking its Dock icon shows the window.
+    // Finder or the Dock icon shows the window; turning the Dock icon on also sends a reopen, with Settings visible.
     func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        Windows.shared.showMain(monitor)
+        if !hasVisibleWindows { Windows.shared.showMain(monitor) }
         return false
     }
 

@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 APP=build/HeatMonitor.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/tmp
 swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos14.0 \
-  Sources/HeatMonitor.swift Sources/Advice.swift -o "$APP/Contents/MacOS/HeatMonitor"
+  Sources/HeatMonitor.swift Sources/Advice.swift Sources/MenuLogic.swift -o "$APP/Contents/MacOS/HeatMonitor"
 if [[ ! -f Resources/AppIcon.icns ]]; then
   swiftc -O scripts/make-icon.swift -o build/tmp/make-icon
   build/tmp/make-icon build/tmp/AppIcon.iconset

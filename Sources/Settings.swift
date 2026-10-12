@@ -20,6 +20,7 @@ struct SettingsView: View {
                     Text("Значок и значения").tag(true)
                 }
                 .pickerStyle(.radioGroup)
+                .labelsHidden()
                 ForEach(MenuValue.allCases, id: \.self) { v in
                     Toggle(isOn: member(v, in: $valuesRaw)) { Label(title(v), systemImage: symbol(v)) }
                         .disabled(!live)
@@ -34,7 +35,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)
         .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func member<T: CaseIterable & RawRepresentable & Hashable>(_ v: T, in raw: Binding<String>) -> Binding<Bool> where T.RawValue == String {

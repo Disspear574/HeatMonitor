@@ -360,6 +360,32 @@ enum SystemInfo {
 }
 
 /// The system power source: the same data the menu bar battery icon shows.
+/// CPU busy share from per-core tick counters, for the label while `top` is not running.
+final class CPULoad: @unchecked Sendable {
+    private var last: [UInt32]?
+
+    // Nil on the first call: a share needs two snapshots.
+    func sample() -> Double? {
+        var cpus: natural_t = 0
+        var info: processor_info_array_t?
+        var count: mach_msg_type_number_t = 0
+        guard host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpus, &info, &count) == KERN_SUCCESS,
+              let info else { return nil }
+        defer { vm_deallocate(mach_task_self_, vm_address_t(bitPattern: info), vm_size_t(count) * vm_size_t(MemoryLayout<integer_t>.stride)) }
+        let ticks = (0..<Int(count)).map { UInt32(bitPattern: info[$0]) }
+        defer { last = ticks }
+        guard let last, last.count == ticks.count else { return nil }
+        var busy: UInt64 = 0, total: UInt64 = 0
+        for c in 0..<Int(cpus) {
+            let o = c * Int(CPU_STATE_MAX)
+            let d = (0..<Int(CPU_STATE_MAX)).map { UInt64(ticks[o + $0] &- last[o + $0]) }
+            busy += d[Int(CPU_STATE_USER)] + d[Int(CPU_STATE_SYSTEM)] + d[Int(CPU_STATE_NICE)]
+            total += d.reduce(0, +)
+        }
+        return total > 0 ? Double(busy) / Double(total) * 100 : nil
+    }
+}
+
 struct PowerSource {
     let onAC: Bool
     let charging: Bool?
@@ -578,11 +604,11 @@ final class Monitor: ObservableObject {
     private let coreKeys = CoreKeys()
 
     // One SMC key per core, found by recording a 12-core M3 Pro under load; other chips average every core key.
-    private static let perCoreKeys: [String: [String]] = [
+    nonisolated private static let perCoreKeys: [String: [String]] = [
         "Apple M3 Pro": ["Tp05", "Tp0D", "Tp0L", "Tp0S", "Tp17", "Tp1F", "Te04", "Te05", "Te0H", "Te0P", "Te0S", "Te0U"],
     ]
 
-    private static func chipName() -> String {
+    nonisolated private static func chipName() -> String {
         var name = [CChar](repeating: 0, count: 64)
         var size = name.count
         return sysctlbyname("machdep.cpu.brand_string", &name, &size, nil, 0) == 0 ? String(cString: name) : ""
@@ -677,8 +703,34 @@ final class Monitor: ObservableObject {
 
     func refreshNow() { refreshSystem() }
 
-    func startLight() {}
-    func stopLight() {}
+    @Published var readings = Readings()
+    private var lightTimer: Timer?
+    private let cpuLoad = CPULoad()
+
+    func startLight() {
+        guard lightTimer == nil else { return }
+        sampleLight()
+        lightTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.sampleLight() }
+        }
+        lightTimer?.tolerance = 1
+    }
+
+    func stopLight() { lightTimer?.invalidate(); lightTimer = nil }
+
+    // Only what the label shows: SMC keys and tick counters, no top, IOReport or disk.
+    private func sampleLight() {
+        io.async { [smc, temps, coreKeys, cpuLoad, weak self] in
+            Self.findCoreKeys(smc, coreKeys)
+            let cores = smc.temperatures(coreKeys.cpu ?? []).map(\.value)
+            let r = Readings(cpuTemp: cores.max() ?? hidCPU(temps.read()),
+                             gpuTemp: smc.temperatures(coreKeys.gpu).map(\.value).max(),
+                             fanRPM: smc.fans().map(\.rpm).max(),
+                             systemW: smc.power().system,
+                             cpuLoad: cpuLoad.sample())
+            Task { @MainActor in self?.readings = r }
+        }
+    }
 
     // While it exists, the root watcher from "max" keeps fans at max; deleting it hands them back with no password.
     private let fanFlag = FileManager.default.temporaryDirectory.appendingPathComponent("heatmonitor-fans-max").path
@@ -746,17 +798,20 @@ final class Monitor: ObservableObject {
         history = []
     }
 
+    nonisolated private static func findCoreKeys(_ smc: SMCReader, _ k: CoreKeys) {
+        guard k.cpu == nil else { return }
+        let all = smc.temperatureKeys()
+        k.cpu = all.filter { $0.hasPrefix("Tp") || $0.hasPrefix("Te") }
+        k.gpu = all.filter { $0.hasPrefix("Tg") }
+        let table = perCoreKeys[chipName()] ?? []
+        if table.count == ProcessInfo.processInfo.processorCount, table.allSatisfy(all.contains) { k.perCore = table }
+    }
+
     private func refreshSystem() {
         let readDisk = ticks % 10 == 0
         ticks += 1
         io.async { [temps, smc, coreKeys, gpuPower, weak self] in
-            if coreKeys.cpu == nil {
-                let all = smc.temperatureKeys()
-                coreKeys.cpu = all.filter { $0.hasPrefix("Tp") || $0.hasPrefix("Te") }
-                coreKeys.gpu = all.filter { $0.hasPrefix("Tg") }
-                let table = Self.perCoreKeys[Self.chipName()] ?? []
-                if table.count == ProcessInfo.processInfo.processorCount, table.allSatisfy(all.contains) { coreKeys.perCore = table }
-            }
+            Self.findCoreKeys(smc, coreKeys)
             let power = smc.power()
             let snap = Snapshot(sensors: temps.read(),
                                 cpuCores: smc.temperatures(coreKeys.cpu ?? []).map(\.value),
@@ -792,6 +847,8 @@ final class Monitor: ObservableObject {
         palmRest = s.palmRest
         if let d = s.disk { disk = d }
         thermal = ProcessInfo.processInfo.thermalState
+        readings = Readings(cpuTemp: cpuHot, gpuTemp: gpuHot, fanRPM: s.fans.map(\.rpm).max(),
+                            systemW: s.battery?.systemW, cpuLoad: cpuUsage)
     }
 
     private func apply(_ s: TopSample, gpu: [Int32: Double]) {

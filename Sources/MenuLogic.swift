@@ -73,3 +73,9 @@ struct Demand {
 
     var stopAt: Date? { open ? nil : idleSince?.addingTimeInterval(Self.grace) }
 }
+
+// IOHID die sensors when SMC has no core keys: "PMU tdie*" on M2 and later, "ACC MTR" on M1.
+func hidCPU(_ sensors: [String: Double]) -> Double? {
+    let tdie = sensors.filter { $0.key.hasPrefix("PMU tdie") }.values
+    return tdie.max() ?? sensors.filter { $0.key.contains("ACC MTR") }.values.max()
+}

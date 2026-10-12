@@ -44,5 +44,10 @@ check(decodeSet("power,bogus,cpuTemp") as Set<MenuValue> == [.power, .cpuTemp], 
 check(decodeSet(Pref.defaults[Pref.panelBlocks] as! String) as Set<PanelBlock> == Set(PanelBlock.allCases), "all blocks by default")
 check(Pref.defaults[Pref.showInDock] as? Bool == false, "dock off by default")
 
+// Macs without SMC core keys: CPU from IOHID die sensors, M2+ "PMU tdie*" first, M1 "ACC MTR".
+check(hidCPU(["PMU tdie1": 50, "PMU tdie2": 57, "NAND CH0 temp": 40]) == 57, "tdie max")
+check(hidCPU(["eACC MTR Temp Sensor0": 44, "gas gauge battery": 30]) == 44, "ACC MTR fallback")
+check(hidCPU(["NAND CH0 temp": 40]) == nil, "no cpu sensor")
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

@@ -677,6 +677,9 @@ final class Monitor: ObservableObject {
 
     func refreshNow() { refreshSystem() }
 
+    func startLight() {}
+    func stopLight() {}
+
     // While it exists, the root watcher from "max" keeps fans at max; deleting it hands them back with no password.
     private let fanFlag = FileManager.default.temporaryDirectory.appendingPathComponent("heatmonitor-fans-max").path
 
@@ -740,6 +743,7 @@ final class Monitor: ObservableObject {
         timer?.invalidate()
         timer = nil
         window = [:]
+        history = []
     }
 
     private func refreshSystem() {
@@ -1391,9 +1395,8 @@ struct SensorsView: View {
 }
 
 struct SensorsButton: View {
-    @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Button("Все датчики…") { openWindow(id: "sensors") }
+        Button("Все датчики…") { Windows.shared.showSensors() }
     }
 }
 
@@ -1449,41 +1452,106 @@ struct ContentView: View {
     }
 }
 
+/// Main and sensors windows built in AppKit: on macOS 14 SwiftUI opens the first window scene at launch.
+@MainActor
+final class Windows {
+    static let shared = Windows()
+    var onMainVisible: ((Bool) -> Void)?
+    private var main: NSWindow?
+    private var sensors: NSWindow?
+
+    func showMain(_ m: Monitor) {
+        if main == nil {
+            let w = window(ContentView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 960, height: 760), autosave: "main")
+            let center = NotificationCenter.default
+            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: w, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onMainVisible?(w.isVisible && w.occlusionState.contains(.visible)) }
+            }
+            center.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onMainVisible?(false) }
+            }
+            main = w
+        }
+        present(main!)
+    }
+
+    func showSensors() {
+        if sensors == nil {
+            sensors = window(SensorsView(), title: tr("Все датчики"), size: NSSize(width: 480, height: 640), autosave: "sensors")
+        }
+        present(sensors!)
+    }
+
+    private func window<V: View>(_ view: V, title: String, size: NSSize, autosave: String) -> NSWindow {
+        let host = NSHostingController(rootView: view)
+        host.sizingOptions = [.minSize]
+        let w = NSWindow(contentViewController: host)
+        w.title = title
+        w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        w.isReleasedWhenClosed = false
+        w.setContentSize(size)
+        w.setFrameAutosaveName(autosave)
+        return w
+    }
+
+    private func present(_ w: NSWindow) {
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let monitor = Monitor()
+    private var demand = Demand()
+    private var stopTimer: Timer?
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        monitor.start()
+        UserDefaults.standard.register(defaults: Pref.defaults)
+        applyDockPolicy()
         monitor.watchPowerSource()
-        // Occlusion can misreport with Stage Manager or several displays; activating the app always resumes.
-        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.monitor.start()
-                self?.monitor.refreshNow()
-            }
-        }
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeOcclusionStateNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                NSApp.occlusionState.contains(.visible) ? self.monitor.start() : self.monitor.stop()
-            }
-        }
+        Windows.shared.onMainVisible = { [weak self] visible in self?.update { $0.set(window: visible, now: $1) } }
+        update { _, _ in }
+    }
+
+    // Opening the app again in Finder or clicking its Dock icon shows the window.
+    func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        Windows.shared.showMain(monitor)
+        return false
     }
 
     func applicationWillTerminate(_ n: Notification) { monitor.stop() }
-    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
+
+    // Full polling while the panel or window is open and 60 s after; the light label timer only when it is off.
+    func update(_ change: (inout Demand, Date) -> Void) {
+        let now = Date()
+        change(&demand, now)
+        stopTimer?.invalidate()
+        stopTimer = nil
+        if demand.wantsFull(at: now) {
+            monitor.stopLight()
+            monitor.start()
+            if let at = demand.stopAt {
+                stopTimer = Timer.scheduledTimer(withTimeInterval: max(0, at.timeIntervalSince(now)), repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.update { _, _ in } }
+                }
+            }
+        } else {
+            monitor.stop()
+            if UserDefaults.standard.bool(forKey: Pref.liveLabel) { monitor.startLight() } else { monitor.stopLight() }
+        }
+    }
+
+    func applyDockPolicy() {
+        NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: Pref.showInDock) ? .regular : .accessory)
+    }
 }
 
 @main
 struct HeatMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
-        WindowGroup("Диспетчер тепла") { ContentView(m: delegate.monitor) }
-            .defaultSize(width: 960, height: 760)
-        Window("Все датчики", id: "sensors") { SensorsView() }
-            .defaultSize(width: 480, height: 640)
+        Settings { SettingsView(dockChanged: { delegate.applyDockPolicy() }) }
     }
 }

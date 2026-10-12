@@ -1562,12 +1562,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let monitor = Monitor()
     private var demand = Demand()
     private var stopTimer: Timer?
+    private var status: StatusController?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         UserDefaults.standard.register(defaults: Pref.defaults)
         applyDockPolicy()
         monitor.watchPowerSource()
         Windows.shared.onMainVisible = { [weak self] visible in self?.update { $0.set(window: visible, now: $1) } }
+        status = StatusController(monitor: monitor) { [weak self] open in self?.update { $0.set(panel: open, now: $1) } }
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update { _, _ in } }
+        }
         update { _, _ in }
     }
 

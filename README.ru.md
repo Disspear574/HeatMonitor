@@ -1,0 +1,151 @@
+<div align="center">
+  <img src="docs/images/icon.png" width="128" alt="Иконка Heat Monitor">
+  <h1>Heat Monitor</h1>
+  <p><b>Небольшое окно для macOS: насколько горячий Mac и что его греет.</b></p>
+  <p><a href="README.md">English</a> · Русский</p>
+
+  <a href="https://github.com/Disspear574/HeatMonitor/releases/latest/download/HeatMonitor.dmg">
+    <img src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C-HeatMonitor.dmg-f2652b?style=for-the-badge&logo=apple&logoColor=white" alt="Скачать HeatMonitor.dmg">
+  </a>
+  <br><br>
+  <a href="https://github.com/Disspear574/HeatMonitor/releases/latest"><img src="https://img.shields.io/github/v/release/Disspear574/HeatMonitor?style=flat-square&color=f2652b" alt="Последний релиз"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-111111?style=flat-square&logo=apple" alt="macOS 14 и новее">
+  <img src="https://img.shields.io/badge/Apple_Silicon-M1%2B-111111?style=flat-square" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/SwiftUI-f05138?style=flat-square&logo=swift&logoColor=white" alt="SwiftUI">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111?style=flat-square" alt="Лицензия MIT"></a>
+</div>
+
+<br>
+
+<p align="center">
+  <img src="docs/images/hero-ru.png" alt="Главное окно с температурами и списком процессов и вкладка «Советы»">
+</p>
+
+Открыл, посмотрел, закрыл. Фоновой службы нет, в сеть приложение не ходит, а для чтения
+датчиков пароль администратора не нужен.
+
+## Возможности
+
+- **Температура CPU.** Самое горячее ядро, среднее за 5 секунд, пик за 5 секунд и график за
+  3 минуты.
+- **Датчики.** Среднее по ядрам CPU, GPU, SSD, батарея, трекпад и обороты вентиляторов.
+- **Что греет Mac.** Приложения или отдельные процессы по нагреву: их доля CPU плюс GPU.
+  Правый клик по строке — поиск в интернете, показ в Finder или завершение.
+- **Питание.** Заряд, ток батареи, потребление Mac и мощность от адаптера против той, что он
+  может дать. Одна строка говорит, хватает ли блока питания или батарея садится на зарядке.
+- **Вентиляторы.** Переключатель «Авто / Макс». Подробнее — в разделе
+  [Вентиляторы](#вентиляторы).
+- **Советы.** Находит WindowServer, который несколько дней не перезапускался, зациклившиеся
+  фоновые службы и забытые после сборки симуляторы, эмуляторы и демоны Gradle.
+- **Все датчики.** Полный список температурных датчиков и кнопка «Скопировать всё».
+- **Русский и английский.** Язык интерфейса — как у системы.
+
+<details>
+<summary>Скриншоты в полный размер</summary>
+<br>
+<img src="docs/images/main-ru.png" alt="Главное окно">
+<img src="docs/images/advice-ru.png" alt="Вкладка «Советы»">
+</details>
+
+## Установка
+
+1. Скачайте [HeatMonitor.dmg](https://github.com/Disspear574/HeatMonitor/releases/latest/download/HeatMonitor.dmg).
+2. Откройте его и перетащите **Heat Monitor** в **Программы**.
+
+> [!IMPORTANT]
+> Приложение подписано ad hoc и не нотаризовано Apple, поэтому macOS блокирует первый запуск.
+> Откройте **Системные настройки → Конфиденциальность и безопасность**, найдите сообщение о
+> Heat Monitor и нажмите **Всё равно открыть**. Или снимите карантин в Терминале:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/HeatMonitor.app
+> ```
+
+**Требования:** Mac на Apple Silicon (M1 и новее) и macOS 14 или новее. Mac на Intel не
+поддерживаются.
+
+## Вентиляторы
+
+Переключатель **Авто / Макс** — единственное, что приложение меняет в Mac.
+
+- **Макс** спрашивает пароль администратора. Затем встроенная утилита `heatmonitor-fan`
+  выставляет всем вентиляторам максимальные обороты через SMC.
+- Рядом остаётся небольшой сторож с правами root. Он возвращает «Авто», когда Heat Monitor
+  закрывается, даже после сбоя.
+- **Авто** просит сторожа вернуть вентиляторы macOS, поэтому пароль не нужен. Пароль
+  спрашивается, только если ручной режим включила другая программа для вентиляторов.
+
+Приложение никогда не опускает обороты ниже тех, что просит macOS. На Mac без вентиляторов
+переключателя нет.
+
+## Советы
+
+Вкладка проверяет систему каждые 5 секунд и только пока она открыта.
+
+| Проверка | Что ищет | Что можно сделать |
+|---|---|---|
+| WindowServer | Высокая нагрузка, дни без перезапуска, невидимые окна от отключённых дисплеев | Выйти из системы и войти снова или перезагрузить Mac |
+| Зависшие службы | Фоновые службы macOS, которые часами грузят процессор | Завершить свои; системные только показаны |
+| Забытые процессы разработки | Симуляторы iOS, эмуляторы Android, демоны Gradle и Kotlin | Остановить группу или всё найденное после подтверждения |
+
+## Как это работает
+
+```mermaid
+flowchart TB
+    Read["<b>Чтение без root</b><br/>ключи SMC · датчики IOHID · энергия GPU из IOReport<br/>клиенты IOAccelerator · top · AppleSmartBattery"]
+    Read --> Monitor["Monitor<br/>Sources/HeatMonitor.swift"]
+    PS["ps, раз в 5 с"] --> Advice["Вкладка «Советы»<br/>Sources/Advice.swift"]
+    Monitor --> Window[Окно]
+    Advice --> Window
+    Window -- "Макс, пароль администратора" --> Fan["heatmonitor-fan, root<br/>Sources/FanTool/main.swift"]
+    Fan -- "ключи режима вентиляторов" --> Fans[Вентиляторы SMC]
+    Fan -. "приложение закрыто: снова «Авто»" .-> Fans
+```
+
+| Показание | Источник |
+|---|---|
+| Температура CPU и GPU | Ключи SMC `Tp*`, `Te*` (ядра CPU) и `Tg*` (GPU) |
+| Температура SSD и батареи | Температурные датчики IOHID |
+| Потребление Mac, мощность адаптера | Ключи SMC `PSTR` и `PDTR` |
+| Ватты GPU | IOReport «Energy Model», канал `GPU Energy` (его же читает `powermetrics`) |
+| Загрузка GPU | `IOAccelerator` → `PerformanceStatistics` |
+| GPU по процессам | Время GPU каждого клиента `IOAccelerator` |
+| Процессы | Один долгоживущий `top` |
+| Батарея и адаптер | `AppleSmartBattery` и источники питания IOKit |
+| Советы | `ps`, пока открыта вкладка; невидимые окна из `CGWindowListCopyWindowInfo` |
+
+Часть этих интерфейсов — закрытые интерфейсы macOS, поэтому продавать приложение в Mac App Store
+нельзя.
+
+## Полезно знать
+
+- Датчики ядер реагируют за доли секунды. Короткий всплеск нагрузки поднимает ядро на 20 °C,
+  особенно на MacBook Air без вентилятора. Поэтому крупная цифра — среднее за 5 секунд.
+- Загрузка GPU — доля времени, когда у GPU есть работа, а не доля его мощности. На самой низкой
+  частоте даже лёгкая работа даёт 20–40 %; реальную нагрузку показывают ватты.
+- Датчики трекпада (`Ts0P`, `Ts1P`) далеко от чипа. На MacBook Air они почти комнатной
+  температуры, когда область над клавиатурой горячая.
+- Мощность адаптера — та, о которой договорились Mac и адаптер, а не цифра на корпусе блока.
+  Через MagSafe она бывает меньше паспортной.
+- Пока окно видно, приложение тратит около 5–15 % одного ядра; когда окно скрыто, оно на паузе.
+
+## Сборка
+
+```bash
+./scripts/build.sh      # build/HeatMonitor.app
+./scripts/make-dmg.sh   # build/HeatMonitor.dmg
+```
+
+Нужны Xcode Command Line Tools. Версия задаётся в `Resources/Info.plist`.
+
+| Путь | Что это |
+|---|---|
+| `Sources/HeatMonitor.swift` | Окно и все показания |
+| `Sources/Advice.swift` | Вкладка «Советы» |
+| `Sources/FanTool/main.swift` | Переключатель вентиляторов, работает только от root |
+| `Resources/` | Info.plist, иконка, строки `en.lproj` и `ru.lproj` |
+| `scripts/` | Сборка, DMG, генераторы иконки и картинок для README |
+
+## Лицензия
+
+[MIT](LICENSE)

@@ -49,5 +49,12 @@ check(hidCPU(["PMU tdie1": 50, "PMU tdie2": 57, "NAND CH0 temp": 40]) == 57, "td
 check(hidCPU(["eACC MTR Temp Sensor0": 44, "gas gauge battery": 30]) == 44, "ACC MTR fallback")
 check(hidCPU(["NAND CH0 temp": 40]) == nil, "no cpu sensor")
 
+// adapterShort: a small battery draw with adapter headroom is not a shortage.
+check(!adapterShort(batteryW: -0.9, adapterInW: 13.7, adapterMaxW: 85), "headroom, battery held at 100%")
+check(adapterShort(batteryW: -5, adapterInW: 80, adapterMaxW: 85), "adapter at its limit")
+check(adapterShort(batteryW: -2, adapterInW: nil, adapterMaxW: nil), "unknown adapter keeps the warning")
+check(!adapterShort(batteryW: -0.3, adapterInW: 84, adapterMaxW: 85), "draw below 0.5 W")
+check(!adapterShort(batteryW: nil, adapterInW: 84, adapterMaxW: 85), "no battery reading")
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

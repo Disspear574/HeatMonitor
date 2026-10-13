@@ -1192,7 +1192,7 @@ func adapterStatus(_ b: SystemInfo.Battery) -> (String, String, Color) {
         return ("battery.50percent", String(format: tr("Работает от батареи: Mac берёт %@."), w(b.systemW)), .secondary)
     }
     let rated = b.adapterMaxW.map { String(format: tr("%ld Вт"), $0) } ?? "?"
-    if let v = b.batteryW, v < -0.5 {
+    if let v = b.batteryW, adapterShort(batteryW: v, adapterInW: b.adapterInW, adapterMaxW: b.adapterMaxW) {
         return ("exclamationmark.triangle.fill",
                 String(format: tr("Блока питания не хватает: Mac берёт %@, от адаптера приходит %@ из %@ доступных, "), w(b.systemW), w(b.adapterInW), rated)
                 + String(format: tr("ещё %.1f Вт идёт из батареи."), -v), .orange)

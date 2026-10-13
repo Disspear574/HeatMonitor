@@ -28,7 +28,7 @@ body:
     attributes:
       label: Heat Monitor version
       description: Heat Monitor → About Heat Monitor
-      placeholder: "1.9"
+      placeholder: "2.0.1"
     validations:
       required: true
   - type: textarea

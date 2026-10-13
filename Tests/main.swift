@@ -6,6 +6,15 @@ func check(_ ok: Bool, _ what: String, line: Int = #line) {
 }
 let t0 = Date(timeIntervalSince1970: 1_000)
 
+// Heat base: auto follows whether the chip was measured; an explicit choice wins.
+check(HeatBase.auto.resolved(measured: true) == .maximum, "auto on a measured chip uses the maximum")
+check(HeatBase.auto.resolved(measured: false) == .total, "auto on an unmeasured chip uses the total")
+check(HeatBase.maximum.resolved(measured: false) == .maximum, "explicit maximum stays")
+check(HeatBase.total.resolved(measured: true) == .total, "explicit total stays")
+check(heatPercent(7.3, of: .maximum, ceiling: 73, total: 10) == 10, "share of the maximum")
+check(heatPercent(5, of: .total, ceiling: 73, total: 10) == 50, "share of the total")
+check(heatPercent(1, of: .total, ceiling: 73, total: 0) == 0, "no load, no division by zero")
+
 // launchIdle: a window "closed" event before anything opened must not start polling.
 var d = Demand()
 d.set(window: false, now: t0)

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage(Pref.liveLabel) private var live = false
     @AppStorage(Pref.labelValues) private var valuesRaw = MenuValue.cpuTemp.rawValue
     @AppStorage(Pref.panelBlocks) private var blocksRaw = encodeSet(Set(PanelBlock.allCases))
+    @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
 
     var body: some View {
         Form {
@@ -29,6 +30,21 @@ struct SettingsView: View {
                 Text("Строка меню")
             } footer: {
                 Text("Значения обновляются раз в 5 секунд. В режиме «Только значок» приложение ничего не опрашивает, пока панель и окно закрыты.")
+            }
+            Section {
+                Picker("Нагрев процессов", selection: Binding(
+                    get: { (HeatBase(rawValue: heatBaseRaw) ?? .auto).resolved(measured: Monitor.measuredCeiling != nil) },
+                    set: { heatBaseRaw = $0.rawValue })) {
+                    Text("Доля от максимума Mac").tag(HeatBase.maximum)
+                    Text("Доля от общей нагрузки").tag(HeatBase.total)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+            } header: {
+                Text("Нагрев процессов")
+            } footer: {
+                Text(Monitor.measuredCeiling.map { String(format: tr("Максимум этого Mac замерен: %.0f Вт."), $0) }
+                     ?? tr("Максимум этого Mac не замерен, поэтому по умолчанию показывается доля от общей нагрузки. Доля от максимума берёт наибольшую нагрузку, которую приложение видело."))
             }
             Section("Панель") {
                 ForEach(PanelBlock.allCases, id: \.self) { b in Toggle(title(b), isOn: member(b, in: $blocksRaw)) }

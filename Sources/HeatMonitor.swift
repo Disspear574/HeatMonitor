@@ -193,6 +193,58 @@ final class GPUByProcess {
     }
 }
 
+// MARK: - CPU energy per process (kernel energy accounting; no root for the user's own processes)
+
+/// CPU watts per process from `ri_energy_nj`: the kernel bills energy per task with the core type and frequency
+/// taken into account. Processes of other users (WindowServer, root daemons) cannot be read without root.
+final class CPUEnergy {
+    private var last: [Int32: UInt64] = [:]
+    private var lastTime: UInt64 = 0
+
+    // Empty on the first call and after a pause longer than 10 s.
+    func read() -> [Int32: Double] {
+        var n = proc_listallpids(nil, 0)
+        var pids = [Int32](repeating: 0, count: Int(max(n, 0)) + 64)
+        n = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<Int32>.size))
+        var now: [Int32: UInt64] = [:]
+        for pid in pids.prefix(Int(max(n, 0))) where pid > 0 {
+            var r = rusage_info_v6()
+            let ok = withUnsafeMutablePointer(to: &r) {
+                $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V6, $0) }
+            }
+            if ok == 0 { now[pid] = r.ri_energy_nj }
+        }
+        let t = DispatchTime.now().uptimeNanoseconds
+        defer { last = now; lastTime = t }
+        guard lastTime > 0, t > lastTime, case let seconds = Double(t - lastTime) / 1e9, seconds < 10 else { return [:] }
+        var out: [Int32: Double] = [:]
+        for (pid, e) in now {
+            if let p = last[pid], e >= p { out[pid] = Double(e - p) / 1e9 / seconds }
+        }
+        return out
+    }
+}
+
+/// Watts per process: measured CPU energy where macOS allows it, otherwise an estimate from CPU time,
+/// plus the process's share of GPU time applied to the GPU's measured watts.
+struct ProcPower {
+    var cpuW: [Int32: Double] = [:]
+    var gpu: [Int32: Double] = [:]
+    var gpuTotal = 0.0
+    var gpuW = 0.0
+    // Watts per 1% of one core, learned from processes with measured energy.
+    var wattsPerCPU = 0.01
+
+    func cpu(_ p: TopSample.Proc) -> (watts: Double, estimated: Bool) {
+        if let w = cpuW[p.pid] { return (w, false) }
+        return (p.cpu * wattsPerCPU, p.cpu > 0)
+    }
+
+    func gpuWatts(_ pid: Int32) -> Double {
+        gpuTotal > 0 ? (gpu[pid] ?? 0) / gpuTotal * gpuW : 0
+    }
+}
+
 // MARK: - GPU power (IOReport energy counters)
 
 /// GPU watts from IOReport energy counters, the source powermetrics reads; no root needed.
@@ -487,11 +539,16 @@ struct Row: Identifiable {
     let appPath: String?
     var cpu: Double
     var gpu: Double
+    var cpuW: Double
+    var gpuW: Double
+    // CPU watts of at least one busy process are estimated from CPU time.
+    var estimated: Bool
     var memMB: Double
     var pids: [Int32]
     // Share of all cores, like Windows Task Manager.
     var cpuShare: Double { cpu / Double(max(SystemInfo.cores, 1)) }
-    var heat: Double { cpuShare + gpu }
+    // Watts, not percent: a busy-time share at low clocks says little about heat.
+    var heat: Double { cpuW + gpuW }
     var count: Int { pids.count }
 }
 
@@ -542,20 +599,24 @@ enum Identity {
         return result
     }
 
-    static func rows(_ procs: [TopSample.Proc], gpu: [Int32: Double], grouped: Bool) -> [Row] {
+    static func rows(_ procs: [TopSample.Proc], power: ProcPower, grouped: Bool) -> [Row] {
         var byKey: [String: Row] = [:]
         var order: [String] = []
         for p in procs {
             let id = of(p)
             let key = grouped ? id.key : "pid:\(p.pid)"
-            let g = gpu[p.pid] ?? 0
+            let g = power.gpu[p.pid] ?? 0
+            let c = power.cpu(p)
+            let gW = power.gpuWatts(p.pid)
             if var r = byKey[key] {
-                r.cpu += p.cpu; r.gpu += g; r.memMB += p.memMB; r.pids.append(p.pid)
+                r.cpu += p.cpu; r.gpu += g; r.cpuW += c.watts; r.gpuW += gW; r.estimated = r.estimated || c.estimated
+                r.memMB += p.memMB; r.pids.append(p.pid)
                 byKey[key] = r
             } else {
                 let name = grouped ? id.name : (id.appPath != nil ? p.command : id.name)
                 byKey[key] = Row(id: key, name: name, icon: icon(id.appPath), appPath: id.appPath,
-                                 cpu: p.cpu, gpu: g, memMB: p.memMB, pids: [p.pid])
+                                 cpu: p.cpu, gpu: g, cpuW: c.watts, gpuW: gW, estimated: c.estimated,
+                                 memMB: p.memMB, pids: [p.pid])
                 order.append(key)
             }
         }
@@ -569,6 +630,14 @@ enum Identity {
 final class Monitor: ObservableObject {
     @Published var rows: [Row] = []
     @Published var hottest: Set<String> = []
+    // CPU + GPU watts at full load: 100% heat. Known chips use a measured value, others the highest total seen.
+    @Published private(set) var heatCeiling = Monitor.measuredCeiling ?? max(UserDefaults.standard.double(forKey: "heatCeiling"), 30)
+    // Watts of every listed process: 100% heat when shares are taken of the total.
+    @Published private(set) var heatTotal = 0.0
+    nonisolated static let measuredCeiling = maxWattsByChip[chipName()]
+    var heatBase: HeatBase {
+        (HeatBase(rawValue: UserDefaults.standard.string(forKey: Pref.heatBase) ?? "") ?? .auto).resolved(measured: Self.measuredCeiling != nil)
+    }
     @Published var sensors: [String: Double] = [:]
     @Published var history: [Double] = []
     @Published var cpuUsage: Double = 0
@@ -588,10 +657,11 @@ final class Monitor: ObservableObject {
     @Published var sortOrder = [KeyPathComparator(\Row.heat, order: .reverse)] { didSet { rebuild() } }
 
     private var lastProcs: [TopSample.Proc] = []
-    private var gpuByPid: [Int32: Double] = [:]
+    private var power = ProcPower()
     private let temps = TempReader()
     private let smc = SMCReader()
     private let gpuReader = GPUByProcess()
+    private let cpuEnergy = CPUEnergy()
     private let gpuPower = GPUPower()
     private var top: TopStream?
     private var timer: Timer?
@@ -603,12 +673,17 @@ final class Monitor: ObservableObject {
     private final class CoreKeys { var cpu: [String]?; var gpu: [String] = []; var perCore: [String] = [] }
     private let coreKeys = CoreKeys()
 
+    // Full-load CPU + GPU watts, measured with an all-core CPU and all-core GPU stress test running together.
+    nonisolated static let maxWattsByChip: [String: Double] = [
+        "Apple M5 Pro": 73,
+    ]
+
     // One SMC key per core, found by recording a 12-core M3 Pro under load; other chips average every core key.
     nonisolated private static let perCoreKeys: [String: [String]] = [
         "Apple M3 Pro": ["Tp05", "Tp0D", "Tp0L", "Tp0S", "Tp17", "Tp1F", "Te04", "Te05", "Te0H", "Te0P", "Te0S", "Te0U"],
     ]
 
-    nonisolated private static func chipName() -> String {
+    nonisolated static func chipName() -> String {
         var name = [CChar](repeating: 0, count: 64)
         var size = name.count
         return sysctlbyname("machdep.cpu.brand_string", &name, &size, nil, 0) == 0 ? String(cString: name) : ""
@@ -677,9 +752,11 @@ final class Monitor: ObservableObject {
         refreshSystem()
         let t = TopStream()
         let gpuReader = self.gpuReader
+        let cpuEnergy = self.cpuEnergy
         t.start(interval: 2) { [weak self] sample in
             let gpu = gpuReader.read()
-            Task { @MainActor in self?.apply(sample, gpu: gpu) }
+            let energy = cpuEnergy.read()
+            Task { @MainActor in self?.apply(sample, gpu: gpu, energy: energy) }
         }
         top = t
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -851,20 +928,47 @@ final class Monitor: ObservableObject {
                             systemW: s.battery?.systemW, cpuLoad: cpuUsage)
     }
 
-    private func apply(_ s: TopSample, gpu: [Int32: Double]) {
+    private func apply(_ s: TopSample, gpu: [Int32: Double], energy: [Int32: Double]) {
         cpuUsage = s.cpuUsage
         lastProcs = s.procs
-        gpuByPid = gpu
+        // Processes with measured energy teach the watts-per-CPU rate used for the ones macOS hides.
+        var measuredW = 0.0, measuredCPU = 0.0
+        for p in s.procs {
+            if let w = energy[p.pid] { measuredW += w; measuredCPU += p.cpu }
+        }
+        if measuredCPU >= 10 { power.wattsPerCPU = power.wattsPerCPU * 0.7 + measuredW / measuredCPU * 0.3 }
+        power.cpuW = energy
+        power.gpu = gpu
+        power.gpuTotal = gpu.values.reduce(0, +)
+        power.gpuW = gpuWatts ?? 0
         rebuild()
     }
 
     private func rebuild() {
-        let r = Identity.rows(lastProcs, gpu: gpuByPid, grouped: grouped).sorted(using: sortOrder)
+        let r = Identity.rows(lastProcs, power: power, grouped: grouped).sorted(using: sortOrder)
         // Animated row moves on every refresh cost more CPU than the rest of the app.
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) { rows = Array(r.prefix(40)) }
-        hottest = Set(r.filter { $0.heat >= 5 }.sorted { $0.heat > $1.heat }.prefix(3).map(\.id))
+        let total = r.reduce(0) { $0 + $1.heat }
+        heatTotal = total
+        if Self.measuredCeiling == nil, total > heatCeiling {
+            heatCeiling = total
+            UserDefaults.standard.set(total, forKey: "heatCeiling")
+        }
+        hottest = Set(r.filter { $0.heat >= 1 }.sorted { $0.heat > $1.heat }.prefix(3).map(\.id))
+    }
+
+    func heatShare(_ r: Row) -> Double { heatPercent(r.heat, of: heatBase, ceiling: heatCeiling, total: heatTotal) }
+
+    var heatCaption: String {
+        let watts = String(format: "%.0f", heatCeiling)
+        switch heatBase {
+        case .total: return tr("нагрев = доля в общей нагрузке CPU и GPU; ≈ — оценка")
+        case _ where Self.measuredCeiling == nil:
+            return String(format: tr("нагрев = доля от наибольшей замеченной нагрузки (%@ Вт); ≈ — оценка"), watts)
+        default: return String(format: tr("нагрев = доля от максимума CPU и GPU (%@ Вт); ≈ — оценка"), watts)
+        }
     }
 
     func search(_ row: Row) {
@@ -882,12 +986,12 @@ final class Monitor: ObservableObject {
 
     var heatReason: String {
         var parts: [String] = []
-        if let top = rows.max(by: { $0.heat < $1.heat }), top.heat >= 3 {
-            var s = "\(top.name) — CPU \(Int(top.cpuShare.rounded()))%"
-            if top.gpu >= 3 { s += ", GPU \(Int(top.gpu.rounded()))%" }
-            parts.append(s)
+        if let top = rows.max(by: { $0.heat < $1.heat }), top.heat >= 1 {
+            parts.append(String(format: tr(heatBase == .maximum ? "%@ — %@ от максимума" : "%@ — %@ нагрева"),
+                                top.name, (top.estimated ? "≈" : "") + pct(heatShare(top))))
         }
-        if let g = gpu, g >= 40 { parts.append(String(format: tr("графика загружена на %ld%%"), Int(g))) }
+        // GPU busy percent reads high at idle clocks, so only real power counts here.
+        if let g = gpuWatts, g >= 5 { parts.append(String(format: tr("графика тратит %.0f Вт"), g)) }
         if cpuUsage >= 60 { parts.append(String(format: tr("процессор загружен на %ld%%"), Int(cpuUsage))) }
         if let w = battery?.batteryW, w > 15 { parts.append(String(format: tr("быстрая зарядка +%.0f Вт"), w)) }
         if thermal == .serious || thermal == .critical { parts.append(tr("macOS уже снижает частоты")) }
@@ -915,6 +1019,10 @@ func gb(_ bytes: Double) -> String { String(format: bytes >= 100e9 ? "%.0f" : "%
 func gbTotal(_ bytes: Double) -> String { String(format: "%.0f", bytes / 1_073_741_824) }
 extension String { func ifEmpty(_ fallback: String) -> String { isEmpty ? fallback : self } }
 func w(_ v: Double?) -> String { v.map { String(format: tr("%.1f Вт"), $0) } ?? "—" }
+// Processes mostly draw well under a watt, so those get two decimals.
+func wFine(_ v: Double) -> String { String(format: tr(v < 1 ? "%.2f Вт" : "%.1f Вт"), v) }
+// Most processes sit well under 1% of full load, so small shares keep a decimal.
+func pct(_ v: Double) -> String { v < 0.1 ? "<0.1%" : String(format: v < 10 ? "%.1f%%" : "%.0f%%", v) }
 func tr(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 func ofGB(_ used: Double, _ total: Double) -> String { String(format: tr("%@ из %@ ГБ"), gb(used), gbTotal(total)) }
 
@@ -1216,8 +1324,10 @@ func adapterStatus(_ b: SystemInfo.Battery) -> (String, String, Color) {
 }
 
 struct HeatBar: View {
-    let value: Double
+    let percent: Double
+    let watts: Double
     let share: Double
+    let estimated: Bool
     var body: some View {
         HStack(spacing: 6) {
             ZStack(alignment: .leading) {
@@ -1226,18 +1336,36 @@ struct HeatBar: View {
                     .frame(width: 50 * min(max(share, 0), 1))
             }
             .frame(width: 50, height: 6)
-            Text(String(format: "%.1f", value)).monospacedDigit()
+            Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
         }
+        .help(wFine(watts) + " · " + tr(estimated ? "Оценка по времени CPU: энергию процессов других пользователей macOS отдаёт только администратору"
+              : "Энергия CPU по учёту macOS плюс доля энергии GPU"))
+    }
+}
+
+/// Shares of the Mac's maximum or of the current total; the choice is shared with Settings.
+struct HeatBasePicker: View {
+    @ObservedObject var m: Monitor
+    @AppStorage(Pref.heatBase) private var raw = HeatBase.auto.rawValue
+    var body: some View {
+        Picker("Нагрев", selection: Binding(get: { m.heatBase }, set: { raw = $0.rawValue })) {
+            Text("От максимума").tag(HeatBase.maximum)
+            Text("От общей").tag(HeatBase.total)
+        }
+        .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
+        .help("От максимума: какую часть полной мощности CPU и GPU берёт процесс. От общей: его доля в текущей нагрузке, вместе 100%.")
     }
 }
 
 struct ProcessTable: View {
     @ObservedObject var m: Monitor
+    // Redraws the table at once when the heat base changes here or in Settings.
+    @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
     @Binding var selection: Set<Row.ID>
     @Binding var columns: TableColumnCustomization<Row>
 
     var body: some View {
-        let maxHeat = max(m.rows.map(\.heat).max() ?? 0, 1)
+        let maxHeat = max(m.rows.map(\.heat).max() ?? 0, 0.5)
         Table(m.rows, selection: $selection, sortOrder: $m.sortOrder, columnCustomization: $columns) {
             TableColumn("Процесс", value: \.name) { row in
                 HStack(spacing: 6) {
@@ -1255,7 +1383,7 @@ struct ProcessTable: View {
             .customizationID("name")
             .disabledCustomizationBehavior(.visibility)
             TableColumn("Нагрев", value: \.heat) { row in
-                HeatBar(value: row.heat, share: row.heat / maxHeat)
+                HeatBar(percent: m.heatShare(row), watts: row.heat, share: row.heat / maxHeat, estimated: row.estimated)
             }
             .width(110)
             .customizationID("heat")
@@ -1490,8 +1618,9 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Что греет Mac").font(.headline)
-                Text("нагрев = CPU + GPU процесса; на Mac это один чип").font(.caption).foregroundStyle(.secondary)
+                Text(m.heatCaption).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(m.heatCaption)
                 Spacer()
+                HeatBasePicker(m: m)
                 Toggle("Группировать по приложениям", isOn: $m.grouped).toggleStyle(.checkbox)
                 ColumnsMenu(columns: $columns)
                 SensorsButton()

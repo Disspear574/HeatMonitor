@@ -1,0 +1,2 @@
+/* Russian is the source language: the keys are the Russian text. This table must exist,
+   or macOS falls back to the development region (en). */

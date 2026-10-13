@@ -53,6 +53,11 @@ while you look, makes no network requests, and needs no administrator password t
 Heat Monitor starts in the menu bar, without a window or a Dock icon. Left click opens the
 panel; right click offers Open Heat Monitor and Quit. Closing the window keeps the app running.
 
+<p align="center">
+  <img src="docs/images/label-en.png" width="224" alt="Menu bar label with CPU and GPU temperature, fan speed and power draw"><br><br>
+  <img src="docs/images/panel-en.png" width="366" alt="The menu bar panel">
+</p>
+
 Settings (the gear in the panel, or ⌘,):
 
 | Setting | Choices | Default |

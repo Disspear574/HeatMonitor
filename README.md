@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/images/icon.png" width="128" alt="Heat Monitor icon">
   <h1>Heat Monitor</h1>
-  <p><b>A small macOS window that shows how hot your Mac is and what heats it.</b></p>
+  <p><b>A macOS menu bar app that shows how hot your Mac is and what heats it.</b></p>
   <p>English · <a href="README.ru.md">Русский</a></p>
 
   <a href="https://github.com/Disspear574/HeatMonitor/releases/latest/download/HeatMonitor.dmg">
@@ -21,11 +21,13 @@
   <img src="docs/images/hero-en.png" alt="The main window with temperatures and the process list, and the Advice tab">
 </p>
 
-Open it, look, close it. No background service, no network access, and reading the sensors
-needs no administrator password.
+Click the thermometer in the menu bar, look, click away. Heat Monitor reads the sensors only
+while you look, makes no network requests, and needs no administrator password to read them.
 
 ## Features
 
+- **Menu bar.** The thermometer opens a compact panel: CPU temperature with a chart, sensors,
+  load, memory and swap, power, the five hottest apps and the fan switch. See [Menu bar](#menu-bar).
 - **CPU temperature.** The hottest core, averaged over 5 seconds, with the 5-second peak and a
   3-minute chart.
 - **Heat sensors.** Average CPU core, GPU, SSD, battery, trackpad and fan speed.
@@ -45,6 +47,25 @@ needs no administrator password.
 <img src="docs/images/main-en.png" alt="Main window">
 <img src="docs/images/advice-en.png" alt="Advice tab">
 </details>
+
+## Menu bar
+
+Heat Monitor starts in the menu bar, without a window or a Dock icon. Left click opens the
+panel; right click offers Open Heat Monitor and Quit. Closing the window keeps the app running.
+
+<p align="center">
+  <img src="docs/images/label-en.png" width="224" alt="Menu bar label with CPU and GPU temperature, fan speed and power draw"><br><br>
+  <img src="docs/images/panel-en.png" width="366" alt="The menu bar panel">
+</p>
+
+Settings (the gear in the panel, or ⌘,):
+
+| Setting | Choices | Default |
+|---|---|---|
+| Show in Dock | on, off | off |
+| Menu bar | Icon only, Icon and values | Icon only |
+| Values | CPU temperature, GPU temperature, fan speed, Mac power draw, CPU load | CPU temperature |
+| Panel | Temperature and chart, sensors, load, power, what heats the Mac, fans | all on |
 
 ## Install
 
@@ -71,6 +92,7 @@ The **Auto / Max** switch is the only part of the app that writes to the Mac.
   fan to its maximum speed through the SMC.
 - A small root watcher stays with it and returns the fans to Auto when Heat Monitor quits, even
   after a crash.
+- Closing the window does not quit, so the fans stay at Max until you choose Quit.
 - **Auto** tells the watcher to hand the fans back to macOS, so it needs no password. Only a
   manual mode set by another fan app asks for one.
 
@@ -94,6 +116,7 @@ flowchart TB
     Read --> Monitor["Monitor<br/>Sources/HeatMonitor.swift"]
     PS["ps, every 5 s"] --> Advice["Advice tab<br/>Sources/Advice.swift"]
     Monitor --> Window[Window]
+    Monitor --> Panel["Menu bar panel<br/>Sources/MenuBar.swift"]
     Advice --> Window
     Window -- "Max, admin password" --> Fan["heatmonitor-fan, root<br/>Sources/FanTool/main.swift"]
     Fan -- "fan mode keys" --> Fans[SMC fans]
@@ -124,14 +147,16 @@ Some of these are private macOS interfaces, so the app cannot be sold in the Mac
   room temperature while the area above the keyboard is hot.
 - The adapter rating is the power the Mac and the adapter agreed on, not the number printed on
   the adapter. Over MagSafe it can be lower than the rating.
-- The app uses about 5–15 % of one core while its window is visible and pauses when the window
-  is hidden.
+- Heat Monitor polls processes and sensors only while the panel or the window is open, and for
+  60 seconds after you close them. In between it uses no CPU. The live label reads a few SMC
+  keys every 5 seconds, about 0.1 % of one core.
 
 ## Build
 
 ```bash
 ./scripts/build.sh      # build/HeatMonitor.app
 ./scripts/make-dmg.sh   # build/HeatMonitor.dmg
+./scripts/test.sh       # menu bar logic tests
 ```
 
 Needs the Xcode command line tools. The version lives in `Resources/Info.plist`.
@@ -139,6 +164,9 @@ Needs the Xcode command line tools. The version lives in `Resources/Info.plist`.
 | Path | What it is |
 |---|---|
 | `Sources/HeatMonitor.swift` | The window and all readings |
+| `Sources/MenuBar.swift` | The menu bar item and its panel |
+| `Sources/Settings.swift` | Settings |
+| `Sources/MenuLogic.swift` | Label values and polling rules; tests in `Tests/` |
 | `Sources/Advice.swift` | The Advice tab |
 | `Sources/FanTool/main.swift` | The root-only fan switch |
 | `Resources/` | Info.plist, icon, `en.lproj` and `ru.lproj` strings |

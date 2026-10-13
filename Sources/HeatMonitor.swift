@@ -1516,17 +1516,19 @@ final class Windows {
     var onMainVisible: ((Bool) -> Void)?
     private var main: NSWindow?
     private var sensors: NSWindow?
+    private var observers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
 
     func showMain(_ m: Monitor) {
         if main == nil {
-            let w = window(ContentView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 960, height: 760), autosave: "main")
-            let center = NotificationCenter.default
-            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: w, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.onMainVisible?(w.isVisible && w.occlusionState.contains(.visible)) }
+            let w = window(ContentView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 960, height: 760), autosave: "main") { [weak self] in
+                self?.main = nil
+                self?.onMainVisible?(false)
             }
-            center.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.onMainVisible?(false) }
+            observe(w, NSWindow.didChangeOcclusionStateNotification) { [weak self] w in
+                self?.onMainVisible?(w.isVisible && w.occlusionState.contains(.visible))
             }
+            // Occlusion can misreport with Stage Manager or several displays; a key window is on screen.
+            observe(w, NSWindow.didBecomeKeyNotification) { [weak self] _ in self?.onMainVisible?(true) }
             main = w
         }
         present(main!)
@@ -1534,12 +1536,21 @@ final class Windows {
 
     func showSensors() {
         if sensors == nil {
-            sensors = window(SensorsView(), title: tr("Все датчики"), size: NSSize(width: 480, height: 640), autosave: "sensors")
+            sensors = window(SensorsView(), title: tr("Все датчики"), size: NSSize(width: 480, height: 640), autosave: "sensors") { [weak self] in
+                self?.sensors = nil
+            }
         }
         present(sensors!)
     }
 
-    private func window<V: View>(_ view: V, title: String, size: NSSize, autosave: String) -> NSWindow {
+    private func observe(_ w: NSWindow, _ name: Notification.Name, _ body: @escaping @MainActor (NSWindow) -> Void) {
+        let token = NotificationCenter.default.addObserver(forName: name, object: w, queue: .main) { [weak w] _ in
+            MainActor.assumeIsolated { if let w { body(w) } }
+        }
+        observers[ObjectIdentifier(w), default: []].append(token)
+    }
+
+    private func window<V: View>(_ view: V, title: String, size: NSSize, autosave: String, onClose: @escaping @MainActor () -> Void) -> NSWindow {
         let host = NSHostingController(rootView: view)
         host.sizingOptions = [.minSize]
         let w = NSWindow(contentViewController: host)
@@ -1548,6 +1559,12 @@ final class Windows {
         w.isReleasedWhenClosed = false
         w.setContentSize(size)
         w.setFrameAutosaveName(autosave)
+        observe(w, NSWindow.willCloseNotification) { [weak self] w in
+            onClose()
+            // A closed window stays allocated; dropping its view runs onDisappear, which stops the tab timers.
+            w.contentViewController = nil
+            self?.observers.removeValue(forKey: ObjectIdentifier(w))?.forEach(NotificationCenter.default.removeObserver)
+        }
         return w
     }
 

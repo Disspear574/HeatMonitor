@@ -79,3 +79,10 @@ func hidCPU(_ sensors: [String: Double]) -> Double? {
     let tdie = sensors.filter { $0.key.hasPrefix("PMU tdie") }.values
     return tdie.max() ?? sensors.filter { $0.key.contains("ACC MTR") }.values.max()
 }
+
+// A battery draw on the adapter is a shortage only near the adapter's rating; at 100 % macOS holds the charge and the battery reads about −1 W.
+func adapterShort(batteryW: Double?, adapterInW: Double?, adapterMaxW: Int?) -> Bool {
+    guard let v = batteryW, v < -0.5 else { return false }
+    guard let inW = adapterInW, let max = adapterMaxW else { return true }
+    return inW >= Double(max) * 0.9
+}

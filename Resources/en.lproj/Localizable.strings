@@ -164,5 +164,3 @@
 "Панель" = "Panel";
 "Температура и график" = "Temperature and chart";
 "Датчики" = "Sensors";
-"Память + swap" = "Memory + swap";
-"%@ из %@ ГБ + %@ ГБ" = "%@ of %@ GB + %@ GB";

@@ -359,6 +359,32 @@ enum SystemInfo {
     }
 }
 
+/// CPU busy share from per-core tick counters, for the label while `top` is not running.
+final class CPULoad: @unchecked Sendable {
+    private var last: [UInt32]?
+
+    // Nil on the first call: a share needs two snapshots.
+    func sample() -> Double? {
+        var cpus: natural_t = 0
+        var info: processor_info_array_t?
+        var count: mach_msg_type_number_t = 0
+        guard host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpus, &info, &count) == KERN_SUCCESS,
+              let info else { return nil }
+        defer { vm_deallocate(mach_task_self_, vm_address_t(bitPattern: info), vm_size_t(count) * vm_size_t(MemoryLayout<integer_t>.stride)) }
+        let ticks = (0..<Int(count)).map { UInt32(bitPattern: info[$0]) }
+        defer { last = ticks }
+        guard let last, last.count == ticks.count else { return nil }
+        var busy: UInt64 = 0, total: UInt64 = 0
+        for c in 0..<Int(cpus) {
+            let o = c * Int(CPU_STATE_MAX)
+            let d = (0..<Int(CPU_STATE_MAX)).map { UInt64(ticks[o + $0] &- last[o + $0]) }
+            busy += d[Int(CPU_STATE_USER)] + d[Int(CPU_STATE_SYSTEM)] + d[Int(CPU_STATE_NICE)]
+            total += d.reduce(0, +)
+        }
+        return total > 0 ? Double(busy) / Double(total) * 100 : nil
+    }
+}
+
 /// The system power source: the same data the menu bar battery icon shows.
 struct PowerSource {
     let onAC: Bool
@@ -578,11 +604,11 @@ final class Monitor: ObservableObject {
     private let coreKeys = CoreKeys()
 
     // One SMC key per core, found by recording a 12-core M3 Pro under load; other chips average every core key.
-    private static let perCoreKeys: [String: [String]] = [
+    nonisolated private static let perCoreKeys: [String: [String]] = [
         "Apple M3 Pro": ["Tp05", "Tp0D", "Tp0L", "Tp0S", "Tp17", "Tp1F", "Te04", "Te05", "Te0H", "Te0P", "Te0S", "Te0U"],
     ]
 
-    private static func chipName() -> String {
+    nonisolated private static func chipName() -> String {
         var name = [CChar](repeating: 0, count: 64)
         var size = name.count
         return sysctlbyname("machdep.cpu.brand_string", &name, &size, nil, 0) == 0 ? String(cString: name) : ""
@@ -677,6 +703,35 @@ final class Monitor: ObservableObject {
 
     func refreshNow() { refreshSystem() }
 
+    @Published var readings = Readings()
+    private var lightTimer: Timer?
+    private let cpuLoad = CPULoad()
+
+    func startLight() {
+        guard lightTimer == nil else { return }
+        sampleLight()
+        lightTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.sampleLight() }
+        }
+        lightTimer?.tolerance = 1
+    }
+
+    func stopLight() { lightTimer?.invalidate(); lightTimer = nil }
+
+    // Only what the label shows: SMC keys and tick counters, no top, IOReport or disk.
+    private func sampleLight() {
+        io.async { [smc, temps, coreKeys, cpuLoad, weak self] in
+            Self.findCoreKeys(smc, coreKeys)
+            let cores = smc.temperatures(coreKeys.cpu ?? []).map(\.value)
+            let r = Readings(cpuTemp: cores.max() ?? hidCPU(temps.read()),
+                             gpuTemp: smc.temperatures(coreKeys.gpu).map(\.value).max(),
+                             fanRPM: smc.fans().map(\.rpm).max(),
+                             systemW: smc.power().system,
+                             cpuLoad: cpuLoad.sample())
+            Task { @MainActor in self?.readings = r }
+        }
+    }
+
     // While it exists, the root watcher from "max" keeps fans at max; deleting it hands them back with no password.
     private let fanFlag = FileManager.default.temporaryDirectory.appendingPathComponent("heatmonitor-fans-max").path
 
@@ -740,19 +795,23 @@ final class Monitor: ObservableObject {
         timer?.invalidate()
         timer = nil
         window = [:]
+        history = []
+    }
+
+    nonisolated private static func findCoreKeys(_ smc: SMCReader, _ k: CoreKeys) {
+        guard k.cpu == nil else { return }
+        let all = smc.temperatureKeys()
+        k.cpu = all.filter { $0.hasPrefix("Tp") || $0.hasPrefix("Te") }
+        k.gpu = all.filter { $0.hasPrefix("Tg") }
+        let table = perCoreKeys[chipName()] ?? []
+        if table.count == ProcessInfo.processInfo.processorCount, table.allSatisfy(all.contains) { k.perCore = table }
     }
 
     private func refreshSystem() {
         let readDisk = ticks % 10 == 0
         ticks += 1
         io.async { [temps, smc, coreKeys, gpuPower, weak self] in
-            if coreKeys.cpu == nil {
-                let all = smc.temperatureKeys()
-                coreKeys.cpu = all.filter { $0.hasPrefix("Tp") || $0.hasPrefix("Te") }
-                coreKeys.gpu = all.filter { $0.hasPrefix("Tg") }
-                let table = Self.perCoreKeys[Self.chipName()] ?? []
-                if table.count == ProcessInfo.processInfo.processorCount, table.allSatisfy(all.contains) { coreKeys.perCore = table }
-            }
+            Self.findCoreKeys(smc, coreKeys)
             let power = smc.power()
             let snap = Snapshot(sensors: temps.read(),
                                 cpuCores: smc.temperatures(coreKeys.cpu ?? []).map(\.value),
@@ -788,6 +847,8 @@ final class Monitor: ObservableObject {
         palmRest = s.palmRest
         if let d = s.disk { disk = d }
         thermal = ProcessInfo.processInfo.thermalState
+        readings = Readings(cpuTemp: cpuHot, gpuTemp: gpuHot, fanRPM: s.fans.map(\.rpm).max(),
+                            systemW: s.battery?.systemW, cpuLoad: cpuUsage)
     }
 
     private func apply(_ s: TopSample, gpu: [Int32: Double]) {
@@ -1391,9 +1452,8 @@ struct SensorsView: View {
 }
 
 struct SensorsButton: View {
-    @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Button("Все датчики…") { openWindow(id: "sensors") }
+        Button("Все датчики…") { Windows.shared.showSensors() }
     }
 }
 
@@ -1449,41 +1509,128 @@ struct ContentView: View {
     }
 }
 
+/// Main and sensors windows built in AppKit: on macOS 14 SwiftUI opens the first window scene at launch.
+@MainActor
+final class Windows {
+    static let shared = Windows()
+    var onMainVisible: ((Bool) -> Void)?
+    private var main: NSWindow?
+    private var sensors: NSWindow?
+    private var observers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
+
+    func showMain(_ m: Monitor) {
+        if main == nil {
+            let w = window(ContentView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 960, height: 760), autosave: "main") { [weak self] in
+                self?.main = nil
+                self?.onMainVisible?(false)
+            }
+            observe(w, NSWindow.didChangeOcclusionStateNotification) { [weak self] w in
+                self?.onMainVisible?(w.isVisible && w.occlusionState.contains(.visible))
+            }
+            // Occlusion can misreport with Stage Manager or several displays; a key window is on screen.
+            observe(w, NSWindow.didBecomeKeyNotification) { [weak self] _ in self?.onMainVisible?(true) }
+            main = w
+        }
+        present(main!)
+    }
+
+    func showSensors() {
+        if sensors == nil {
+            sensors = window(SensorsView(), title: tr("Все датчики"), size: NSSize(width: 480, height: 640), autosave: "sensors") { [weak self] in
+                self?.sensors = nil
+            }
+        }
+        present(sensors!)
+    }
+
+    private func observe(_ w: NSWindow, _ name: Notification.Name, _ body: @escaping @MainActor (NSWindow) -> Void) {
+        let token = NotificationCenter.default.addObserver(forName: name, object: w, queue: .main) { [weak w] _ in
+            MainActor.assumeIsolated { if let w { body(w) } }
+        }
+        observers[ObjectIdentifier(w), default: []].append(token)
+    }
+
+    private func window<V: View>(_ view: V, title: String, size: NSSize, autosave: String, onClose: @escaping @MainActor () -> Void) -> NSWindow {
+        let host = NSHostingController(rootView: view)
+        host.sizingOptions = [.minSize]
+        let w = NSWindow(contentViewController: host)
+        w.title = title
+        w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        w.isReleasedWhenClosed = false
+        w.setContentSize(size)
+        w.setFrameAutosaveName(autosave)
+        observe(w, NSWindow.willCloseNotification) { [weak self] w in
+            onClose()
+            // A closed window stays allocated; dropping its view runs onDisappear, which stops the tab timers.
+            w.contentViewController = nil
+            self?.observers.removeValue(forKey: ObjectIdentifier(w))?.forEach(NotificationCenter.default.removeObserver)
+        }
+        return w
+    }
+
+    private func present(_ w: NSWindow) {
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let monitor = Monitor()
+    private var demand = Demand()
+    private var stopTimer: Timer?
+    private var status: StatusController?
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        monitor.start()
+        UserDefaults.standard.register(defaults: Pref.defaults)
+        applyDockPolicy()
         monitor.watchPowerSource()
-        // Occlusion can misreport with Stage Manager or several displays; activating the app always resumes.
-        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.monitor.start()
-                self?.monitor.refreshNow()
-            }
+        Windows.shared.onMainVisible = { [weak self] visible in self?.update { $0.set(window: visible, now: $1) } }
+        status = StatusController(monitor: monitor) { [weak self] open in self?.update { $0.set(panel: open, now: $1) } }
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update { _, _ in } }
         }
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeOcclusionStateNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                NSApp.occlusionState.contains(.visible) ? self.monitor.start() : self.monitor.stop()
-            }
-        }
+        update { _, _ in }
+    }
+
+    // Finder or the Dock icon shows the window; turning the Dock icon on also sends a reopen, with Settings visible.
+    func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { Windows.shared.showMain(monitor) }
+        return false
     }
 
     func applicationWillTerminate(_ n: Notification) { monitor.stop() }
-    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
+
+    // Full polling while the panel or window is open and 60 s after; the light label timer only when it is off.
+    func update(_ change: (inout Demand, Date) -> Void) {
+        let now = Date()
+        change(&demand, now)
+        stopTimer?.invalidate()
+        stopTimer = nil
+        if demand.wantsFull(at: now) {
+            monitor.stopLight()
+            monitor.start()
+            if let at = demand.stopAt {
+                stopTimer = Timer.scheduledTimer(withTimeInterval: max(0, at.timeIntervalSince(now)), repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.update { _, _ in } }
+                }
+            }
+        } else {
+            monitor.stop()
+            if UserDefaults.standard.bool(forKey: Pref.liveLabel) { monitor.startLight() } else { monitor.stopLight() }
+        }
+    }
+
+    func applyDockPolicy() {
+        NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: Pref.showInDock) ? .regular : .accessory)
+    }
 }
 
 @main
 struct HeatMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
-        WindowGroup("Диспетчер тепла") { ContentView(m: delegate.monitor) }
-            .defaultSize(width: 960, height: 760)
-        Window("Все датчики", id: "sensors") { SensorsView() }
-            .defaultSize(width: 480, height: 640)
+        Settings { SettingsView(dockChanged: { delegate.applyDockPolicy() }) }
     }
 }

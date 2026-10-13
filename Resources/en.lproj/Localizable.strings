@@ -145,3 +145,24 @@
 "Системную службу может завершить только администратор. Обычно она успокаивается сама: индексация и обновления заканчиваются." = "Only an administrator can stop a system service. It usually calms down by itself when indexing and updates finish.";
 "Забытые процессы разработки" = "Leftover development processes";
 "Симуляторы, эмуляторы Android и демоны Gradle и Kotlin продолжают работать после сборки и держат память и процессор." = "Simulators, Android emulators, and Gradle and Kotlin daemons keep running after a build and hold memory and CPU.";
+
+"%.0f Вт" = "%.0f W";
+"Выйти" = "Quit";
+"Открыть окно" = "Open Window";
+"Открыть Диспетчер тепла" = "Open Heat Monitor";
+"Настройки" = "Settings";
+"Основные" = "General";
+"Показывать в Dock" = "Show in Dock";
+"Строка меню" = "Menu bar";
+"Только значок" = "Icon only";
+"Значок и значения" = "Icon and values";
+"Значения обновляются раз в 5 секунд. В режиме «Только значок» приложение ничего не опрашивает, пока панель и окно закрыты." = "Values update every 5 seconds. In Icon only mode the app reads nothing while the panel and the window are closed.";
+"Температура GPU" = "GPU temperature";
+"Обороты вентиляторов" = "Fan speed";
+"Потребление Mac" = "Mac power draw";
+"Загрузка CPU" = "CPU load";
+"Панель" = "Panel";
+"Температура и график" = "Temperature and chart";
+"Датчики" = "Sensors";
+"Память + swap" = "Memory + swap";
+"%@ из %@ ГБ + %@ ГБ" = "%@ of %@ GB + %@ GB";

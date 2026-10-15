@@ -40,15 +40,30 @@ func encodeSet<T: CaseIterable & RawRepresentable>(_ v: Set<T>) -> String where 
     T.allCases.filter(v.contains).map(\.rawValue).joined(separator: ",")
 }
 
+/// What a process's heat percent is taken of: the Mac's full-load watts or the current total of every process.
+enum HeatBase: String, CaseIterable {
+    case auto, maximum, total
+
+    // Auto takes the maximum only where it was measured; a guessed ceiling would inflate every share.
+    func resolved(measured: Bool) -> HeatBase { self == .auto ? (measured ? .maximum : .total) : self }
+}
+
+/// Heat share in percent; `base` must already be resolved.
+func heatPercent(_ watts: Double, of base: HeatBase, ceiling: Double, total: Double) -> Double {
+    let whole = base == .maximum ? ceiling : total
+    return whole > 0 ? watts / whole * 100 : 0
+}
+
 /// UserDefaults keys and defaults shared by settings, the menu bar item and the panel.
 enum Pref {
     static let showInDock = "showInDock"
     static let liveLabel = "menuLive"
     static let labelValues = "menuValues"
     static let panelBlocks = "panelBlocks"
+    static let heatBase = "heatBase"
     static var defaults: [String: Any] {
         [showInDock: false, liveLabel: false, labelValues: MenuValue.cpuTemp.rawValue,
-         panelBlocks: encodeSet(Set(PanelBlock.allCases))]
+         panelBlocks: encodeSet(Set(PanelBlock.allCases)), heatBase: HeatBase.auto.rawValue]
     }
 }
 

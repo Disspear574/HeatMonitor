@@ -92,6 +92,8 @@ struct MenuPanel: View {
     @ObservedObject var m: Monitor
     let close: () -> Void
     @AppStorage(Pref.panelBlocks) private var blocksRaw = encodeSet(Set(PanelBlock.allCases))
+    // Redraws the app list at once when the heat base changes.
+    @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
 
     var body: some View {
         let blocks: Set<PanelBlock> = decodeSet(blocksRaw)
@@ -160,7 +162,8 @@ struct MenuPanel: View {
                     Image(nsImage: r.icon).resizable().frame(width: 16, height: 16)
                     Text(r.name).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 8)
-                    Text(String(format: "%.1f", r.heat)).monospacedDigit().foregroundStyle(.secondary)
+                    Text((r.estimated ? "≈" : "") + pct(m.heatShare(r))).monospacedDigit().foregroundStyle(.secondary)
+                        .help(wFine(r.heat))
                 }
                 .font(.callout)
             }

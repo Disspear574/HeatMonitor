@@ -24,6 +24,7 @@
 "Диск свободно" = "Disk free";
 "%@ из %@ ГБ" = "%@ of %@ GB";
 "%.1f Вт" = "%.1f W";
+"%.2f Вт" = "%.2f W";
 
 /* Thermal state */
 "Частоты не снижены" = "Full speed";
@@ -57,14 +58,26 @@
 "Блока питания хватает: доступно %@" = "The power adapter is enough: %@ available";
 
 /* What heats the Mac */
-"графика загружена на %ld%%" = "GPU at %ld%%";
+"графика тратит %.0f Вт" = "GPU draws %.0f W";
 "процессор загружен на %ld%%" = "CPU at %ld%%";
 "быстрая зарядка +%.0f Вт" = "fast charging +%.0f W";
 "macOS уже снижает частоты" = "macOS is already lowering clock speeds";
 "Нагрузка маленькая — сейчас ничего не греет" = "Load is low — nothing is heating the Mac now";
 "Греет: %@" = "Heating: %@";
 "Что греет Mac" = "What heats the Mac";
-"нагрев = CPU + GPU процесса; на Mac это один чип" = "heat = process CPU + GPU; on a Mac they share one chip";
+"нагрев = доля от максимума CPU и GPU (%@ Вт); ≈ — оценка" = "heat = share of the CPU and GPU maximum (%@ W); ≈ is an estimate";
+"%@ — %@ от максимума" = "%@ — %@ of the maximum";
+"%@ — %@ нагрева" = "%@ — %@ of the heat";
+"нагрев = доля в общей нагрузке CPU и GPU; ≈ — оценка" = "heat = share of the total CPU and GPU load; ≈ is an estimate";
+"нагрев = доля от наибольшей замеченной нагрузки (%@ Вт); ≈ — оценка" = "heat = share of the highest load seen (%@ W); ≈ is an estimate";
+"От максимума" = "Of maximum";
+"От общей" = "Of total";
+"От максимума: какую часть полной мощности CPU и GPU берёт процесс. От общей: его доля в текущей нагрузке, вместе 100%." = "Of maximum: how much of the full CPU and GPU power the process takes. Of total: its share of the current load, adding up to 100%.";
+"Нагрев процессов" = "Process heat";
+"Доля от максимума Mac" = "Share of the Mac's maximum";
+"Доля от общей нагрузки" = "Share of the total load";
+"Максимум этого Mac замерен: %.0f Вт." = "This Mac's maximum is measured: %.0f W.";
+"Максимум этого Mac не замерен, поэтому по умолчанию показывается доля от общей нагрузки. Доля от максимума берёт наибольшую нагрузку, которую приложение видело." = "This Mac's maximum is not measured, so the share of the total load is shown by default. The share of the maximum uses the highest load the app has seen.";
 "Группировать по приложениям" = "Group by app";
 "Собираю список процессов…" = "Collecting processes…";
 
@@ -72,6 +85,8 @@
 "Процесс" = "Process";
 "Нагрев" = "Heat";
 "Один из главных источников нагрева" = "One of the main heat sources";
+"Оценка по времени CPU: энергию процессов других пользователей macOS отдаёт только администратору" = "Estimated from CPU time: macOS gives the energy of other users' processes only to an administrator";
+"Энергия CPU по учёту macOS плюс доля энергии GPU" = "CPU energy as macOS accounts it, plus a share of GPU energy";
 "Память %@ ГБ" = "Memory %@ GB";
 "%.1f ГБ" = "%.1f GB";
 "%.0f МБ" = "%.0f MB";

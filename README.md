@@ -31,7 +31,8 @@ while you look, makes no network requests, and needs no administrator password t
 - **CPU temperature.** The hottest core, averaged over 5 seconds, with the 5-second peak and a
   3-minute chart.
 - **Heat sensors.** Average CPU core, GPU, SSD, battery, trackpad and fan speed.
-- **What heats the Mac.** Apps or single processes sorted by heat: their share of CPU plus GPU.
+- **What heats the Mac.** Apps or single processes sorted by heat: their CPU plus GPU watts, shown
+  as a share of the Mac's full-load maximum or of the current total.
   Right-click a row to search the web for it, show it in Finder or quit it.
 - **Power.** Charge, battery flow, system draw and the adapter's input against what it can give.
   One line says whether the adapter keeps up or the battery drains while plugged in.
@@ -66,6 +67,7 @@ Settings (the gear in the panel, or ⌘,):
 | Menu bar | Icon only, Icon and values | Icon only |
 | Values | CPU temperature, GPU temperature, fan speed, Mac power draw, CPU load | CPU temperature |
 | Panel | Temperature and chart, sensors, load, power, what heats the Mac, fans | all on |
+| Process heat | Share of the Mac's maximum, share of the total load | maximum where measured, otherwise total |
 
 ## Install
 
@@ -130,7 +132,8 @@ flowchart TB
 | System draw, adapter input | SMC keys `PSTR` and `PDTR` |
 | GPU watts | IOReport "Energy Model", channel `GPU Energy` (the source `powermetrics` reads) |
 | GPU busy time | `IOAccelerator` → `PerformanceStatistics` |
-| Per-process GPU | GPU time of each `IOAccelerator` user client |
+| Per-process GPU | GPU time of each `IOAccelerator` user client, times GPU watts |
+| Per-process CPU watts | `proc_pid_rusage` → `ri_energy_nj`; other users' processes (WindowServer, root daemons) are estimated from CPU time |
 | Processes | one long-running `top` |
 | Battery and adapter | `AppleSmartBattery` and IOKit power sources |
 | Advice | `ps` while the tab is open; offscreen windows from `CGWindowListCopyWindowInfo` |
@@ -143,6 +146,11 @@ Some of these are private macOS interfaces, so the app cannot be sold in the Mac
   20 °C, especially on a fanless MacBook Air. That is why the big number is a 5-second average.
 - GPU busy time is the share of time the GPU has work, not the share of its power. At its
   lowest clock even light work shows 20–40 %; the watts show the real load.
+- Process heat is energy, not busy time: the kernel bills each process's CPU energy with the core
+  type and clock taken into account, and each process gets its share of the GPU's watts. macOS
+  hides the energy of other users' processes without root, so those are estimated from CPU time
+  and marked with ≈. The full-load maximum is measured per chip (Apple M5 Pro: 73 W with every
+  CPU and GPU core busy); other chips show shares of the total load by default.
 - The trackpad sensors (`Ts0P`, `Ts1P`) sit far from the chip. On a MacBook Air they stay near
   room temperature while the area above the keyboard is hot.
 - The adapter rating is the power the Mac and the adapter agreed on, not the number printed on

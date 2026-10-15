@@ -1651,13 +1651,13 @@ final class Windows {
         if main == nil {
             let w = window(ContentView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 960, height: 760), autosave: "main") { [weak self] in
                 self?.main = nil
-                self?.onMainVisible?(false)
+                self?.setMainVisible(false)
             }
             observe(w, NSWindow.didChangeOcclusionStateNotification) { [weak self] w in
-                self?.onMainVisible?(w.isVisible && w.occlusionState.contains(.visible))
+                self?.setMainVisible(w.isVisible && w.occlusionState.contains(.visible), settle: true)
             }
             // Occlusion can misreport with Stage Manager or several displays; a key window is on screen.
-            observe(w, NSWindow.didBecomeKeyNotification) { [weak self] _ in self?.onMainVisible?(true) }
+            observe(w, NSWindow.didBecomeKeyNotification) { [weak self] _ in self?.setMainVisible(true) }
             main = w
         }
         present(main!)
@@ -1670,6 +1670,27 @@ final class Windows {
             }
         }
         present(sensors!)
+    }
+
+    private var pendingVisible: Timer?
+
+    // Show Desktop and Mission Control sweep every window aside, so a covered window peeks out and reads as visible
+    // for the length of the animation. Polling and the first full redraw then landed mid-animation and made it stutter;
+    // with `settle`, the window must stay visible for a second first. Hiding and becoming key apply at once.
+    private func setMainVisible(_ visible: Bool, settle: Bool = false) {
+        pendingVisible?.invalidate()
+        pendingVisible = nil
+        if !visible || !settle {
+            onMainVisible?(visible)
+            return
+        }
+        pendingVisible = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let w = self.main, w.isVisible, w.occlusionState.contains(.visible) else { return }
+                self.pendingVisible = nil
+                self.onMainVisible?(true)
+            }
+        }
     }
 
     private func observe(_ w: NSWindow, _ name: Notification.Name, _ body: @escaping @MainActor (NSWindow) -> Void) {

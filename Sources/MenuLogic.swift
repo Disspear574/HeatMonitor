@@ -101,3 +101,17 @@ func adapterShort(batteryW: Double?, adapterInW: Double?, adapterMaxW: Int?) -> 
     guard let inW = adapterInW, let max = adapterMaxW else { return true }
     return inW >= Double(max) * 0.9
 }
+
+// Measured members keep their watts; the rest of the app's energy, exited children included, goes by weight.
+func splitWatts(_ total: Double, weights: [(pid: Int32, weight: Double)], fixed: [Int32: Double]) -> [Int32: Double] {
+    var out = fixed.filter { pid, _ in weights.contains { $0.pid == pid } }
+    let rest = max(total - out.values.reduce(0, +), 0)
+    let open = weights.filter { out[$0.pid] == nil }
+    let sum = open.reduce(0) { $0 + $1.weight }
+    if sum > 0 {
+        for m in open { out[m.pid] = rest * m.weight / sum }
+    } else if let first = open.first ?? weights.first {
+        out[first.pid, default: 0] += rest
+    }
+    return out
+}

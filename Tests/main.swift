@@ -15,6 +15,14 @@ check(heatPercent(7.3, of: .maximum, ceiling: 73, total: 10) == 10, "share of th
 check(heatPercent(5, of: .total, ceiling: 73, total: 10) == 50, "share of the total")
 check(heatPercent(1, of: .total, ceiling: 73, total: 0) == 0, "no load, no division by zero")
 
+// splitWatts: measured members keep their value, the rest goes by weight, or to the first member when nobody is busy.
+let sw = splitWatts(10, weights: [(1, 0), (2, 30), (3, 10)], fixed: [1: 2])
+check(sw[1] == 2 && sw[2] == 6 && sw[3] == 2, "measured kept, rest by weight: \(sw)")
+check(splitWatts(4, weights: [(7, 0), (5, 0)], fixed: [:]) == [7: 4], "idle members: first listed gets it")
+check(splitWatts(1, weights: [(1, 5)], fixed: [1: 3]) == [1: 3], "measured above the total stays measured")
+check(splitWatts(3, weights: [(1, 5), (2, 0)], fixed: [1: 1]) == [1: 1, 2: 2], "rest goes to the unmeasured member")
+check(splitWatts(0, weights: [(1, 5)], fixed: [:]) == [1: 0], "no energy, zero watts")
+
 // launchIdle: a window "closed" event before anything opened must not start polling.
 var d = Demand()
 d.set(window: false, now: t0)

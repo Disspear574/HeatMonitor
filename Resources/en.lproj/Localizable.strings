@@ -85,7 +85,7 @@
 "Процесс" = "Process";
 "Нагрев" = "Heat";
 "Один из главных источников нагрева" = "One of the main heat sources";
-"Оценка по времени CPU: энергию процессов других пользователей macOS отдаёт только администратору" = "Estimated from CPU time: macOS gives the energy of other users' processes only to an administrator";
+"Оценка по времени CPU: macOS считает энергию на всё приложение, здесь она поделена между его процессами" = "Estimated from CPU time: macOS counts energy per app, and here it is split between the app's processes";
 "Энергия CPU по учёту macOS плюс доля энергии GPU" = "CPU energy as macOS accounts it, plus a share of GPU energy";
 "Память %@ ГБ" = "Memory %@ GB";
 "%.1f ГБ" = "%.1f GB";

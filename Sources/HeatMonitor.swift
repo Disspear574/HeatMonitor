@@ -225,6 +225,66 @@ final class CPUEnergy {
     }
 }
 
+/// Watts per app (kernel resource coalition), including exited children and other users' apps; private API, no root.
+final class CoalitionEnergy {
+    struct Watts { var cpu = 0.0, gpu = 0.0, ane = 0.0 }
+    struct Snapshot {
+        var watts: [UInt64: Watts] = [:]
+        var coalitionOf: [Int32: UInt64] = [:]
+        // Lowest pid of each coalition: stands for it when none of its processes is in the `top` list.
+        var leader: [UInt64: Int32] = [:]
+    }
+    private typealias List = @convention(c) (Int32, Int32, UnsafeMutableRawPointer?, Int32) -> Int32
+    private typealias Usage = @convention(c) (UInt64, UnsafeMutableRawPointer, Int) -> Int32
+    private let list: List?
+    private let usage: Usage?
+    private var last: [UInt64: (cpu: UInt64, gpu: UInt64, ane: UInt64)] = [:]
+    private var lastTime: UInt64 = 0
+
+    init() {
+        let h = dlopen(nil, RTLD_NOW)
+        list = dlsym(h, "proc_listcoalitions").map { unsafeBitCast($0, to: List.self) }
+        usage = dlsym(h, "coalition_info_resource_usage").map { unsafeBitCast($0, to: Usage.self) }
+    }
+
+    // Empty on the first call, after a pause longer than 10 s, or when the kernel interface differs.
+    func read() -> Snapshot {
+        guard let list, let usage else { return Snapshot() }
+        // 16-byte entries: coalition id, then type (0 = resource) and padding.
+        var ids = [UInt64](repeating: 0, count: 2 * 4096)
+        let bytes = ids.withUnsafeMutableBytes { list(1, 0, $0.baseAddress, Int32($0.count)) }
+        var now: [UInt64: (cpu: UInt64, gpu: UInt64, ane: UInt64)] = [:]
+        var u = [UInt64](repeating: 0, count: 64)
+        for i in 0..<min(Int(max(bytes, 0)) / 16, 4096) where ids[2 * i + 1] & 0xffff_ffff == 0 {
+            for k in u.indices { u[k] = 0 }
+            // Index 23 is the QoS array length (7); anything else means the struct layout moved.
+            guard u.withUnsafeMutableBytes({ usage(ids[2 * i], $0.baseAddress!, $0.count) }) == 0, u[23] == 7 else { continue }
+            now[ids[2 * i]] = (u[11], u[41], u[39])
+        }
+        let t = DispatchTime.now().uptimeNanoseconds
+        defer { last = now; lastTime = t }
+        guard lastTime > 0, t > lastTime, case let seconds = Double(t - lastTime) / 1e9, seconds < 10 else { return Snapshot() }
+        var s = Snapshot()
+        for (id, e) in now {
+            guard let p = last[id], e.cpu >= p.cpu, e.gpu >= p.gpu, e.ane >= p.ane else { continue }
+            s.watts[id] = Watts(cpu: Double(e.cpu - p.cpu) / 1e9 / seconds, gpu: Double(e.gpu - p.gpu) / 1e9 / seconds,
+                                ane: Double(e.ane - p.ane) / 1e9 / seconds)
+        }
+        var n = proc_listallpids(nil, 0)
+        var pids = [Int32](repeating: 0, count: Int(max(n, 0)) + 64)
+        n = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<Int32>.size))
+        var info = [UInt64](repeating: 0, count: 5)
+        for pid in pids.prefix(Int(max(n, 0))) where pid > 0 {
+            // PROC_PIDCOALITIONINFO: the resource coalition id comes first; allowed for other users' processes.
+            guard info.withUnsafeMutableBytes({ proc_pidinfo(pid, 20, 0, $0.baseAddress, Int32($0.count)) }) >= 8,
+                  info[0] != 0 else { continue }
+            s.coalitionOf[pid] = info[0]
+            if pid < s.leader[info[0]] ?? .max { s.leader[info[0]] = pid }
+        }
+        return s
+    }
+}
+
 /// Watts per process: measured CPU energy where macOS allows it, otherwise an estimate from CPU time,
 /// plus the process's share of GPU time applied to the GPU's measured watts.
 struct ProcPower {
@@ -234,14 +294,21 @@ struct ProcPower {
     var gpuW = 0.0
     // Watts per 1% of one core, learned from processes with measured energy.
     var wattsPerCPU = 0.01
+    // Coalition energy split over the listed processes; empty until two coalition readings exist.
+    var shareCPU: [Int32: Double] = [:]
+    var shareGPU: [Int32: Double] = [:]
+    // Processes that got a CPU-time share of their app's energy rather than their own measured value.
+    var split: Set<Int32> = []
 
     func cpu(_ p: TopSample.Proc) -> (watts: Double, estimated: Bool) {
+        if let w = shareCPU[p.pid] { return (w, split.contains(p.pid)) }
         if let w = cpuW[p.pid] { return (w, false) }
         return (p.cpu * wattsPerCPU, p.cpu > 0)
     }
 
     func gpuWatts(_ pid: Int32) -> Double {
-        gpuTotal > 0 ? (gpu[pid] ?? 0) / gpuTotal * gpuW : 0
+        if !shareGPU.isEmpty { return shareGPU[pid] ?? 0 }
+        return gpuTotal > 0 ? (gpu[pid] ?? 0) / gpuTotal * gpuW : 0
     }
 }
 
@@ -662,6 +729,7 @@ final class Monitor: ObservableObject {
     private let smc = SMCReader()
     private let gpuReader = GPUByProcess()
     private let cpuEnergy = CPUEnergy()
+    private let coalitions = CoalitionEnergy()
     private let gpuPower = GPUPower()
     private var top: TopStream?
     private var timer: Timer?
@@ -753,10 +821,12 @@ final class Monitor: ObservableObject {
         let t = TopStream()
         let gpuReader = self.gpuReader
         let cpuEnergy = self.cpuEnergy
+        let coalitions = self.coalitions
         t.start(interval: 2) { [weak self] sample in
             let gpu = gpuReader.read()
             let energy = cpuEnergy.read()
-            Task { @MainActor in self?.apply(sample, gpu: gpu, energy: energy) }
+            let coal = coalitions.read()
+            Task { @MainActor in self?.apply(sample, gpu: gpu, energy: energy, coalitions: coal) }
         }
         top = t
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -928,9 +998,29 @@ final class Monitor: ObservableObject {
                             systemW: s.battery?.systemW, cpuLoad: cpuUsage)
     }
 
-    private func apply(_ s: TopSample, gpu: [Int32: Double], energy: [Int32: Double]) {
+    private func apply(_ s: TopSample, gpu: [Int32: Double], energy: [Int32: Double], coalitions c: CoalitionEnergy.Snapshot) {
         cpuUsage = s.cpuUsage
         lastProcs = s.procs
+        // An app whose processes all fall outside the `top` list (finished builds, idle shells) still shows up.
+        let listed = Set(s.procs.compactMap { c.coalitionOf[$0.pid] })
+        for (id, w) in c.watts where !listed.contains(id) && w.cpu + w.gpu + w.ane >= 0.05 {
+            guard let pid = c.leader[id] else { continue }
+            // proc_name is empty for other users' processes; the executable path is not.
+            var path = [CChar](repeating: 0, count: 4096)
+            guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { continue }
+            lastProcs.append(.init(pid: pid, command: (String(cString: path) as NSString).lastPathComponent, cpu: 0, memMB: 0))
+        }
+        var members: [UInt64: [TopSample.Proc]] = [:]
+        for p in lastProcs { if let id = c.coalitionOf[p.pid] { members[id, default: []].append(p) } }
+        power.shareCPU = [:]; power.shareGPU = [:]; power.split = []
+        for (id, ps) in members {
+            guard let w = c.watts[id] else { continue }
+            let ordered = ps.sorted { $0.pid < $1.pid }
+            let fixed = energy.filter { pid, _ in ordered.contains { $0.pid == pid } }
+            power.shareCPU.merge(splitWatts(w.cpu + w.ane, weights: ordered.map { ($0.pid, $0.cpu) }, fixed: fixed)) { $1 }
+            power.shareGPU.merge(splitWatts(w.gpu, weights: ordered.map { ($0.pid, gpu[$0.pid] ?? 0) }, fixed: [:])) { $1 }
+            power.split.formUnion(ordered.map(\.pid).filter { fixed[$0] == nil && ordered.count > 1 })
+        }
         // Processes with measured energy teach the watts-per-CPU rate used for the ones macOS hides.
         var measuredW = 0.0, measuredCPU = 0.0
         for p in s.procs {
@@ -1338,7 +1428,7 @@ struct HeatBar: View {
             .frame(width: 50, height: 6)
             Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
         }
-        .help(wFine(watts) + " · " + tr(estimated ? "Оценка по времени CPU: энергию процессов других пользователей macOS отдаёт только администратору"
+        .help(wFine(watts) + " · " + tr(estimated ? "Оценка по времени CPU: macOS считает энергию на всё приложение, здесь она поделена между его процессами"
               : "Энергия CPU по учёту macOS плюс доля энергии GPU"))
     }
 }

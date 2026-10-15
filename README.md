@@ -132,8 +132,9 @@ flowchart TB
 | System draw, adapter input | SMC keys `PSTR` and `PDTR` |
 | GPU watts | IOReport "Energy Model", channel `GPU Energy` (the source `powermetrics` reads) |
 | GPU busy time | `IOAccelerator` → `PerformanceStatistics` |
-| Per-process GPU | GPU time of each `IOAccelerator` user client, times GPU watts |
-| Per-process CPU watts | `proc_pid_rusage` → `ri_energy_nj`; other users' processes (WindowServer, root daemons) are estimated from CPU time |
+| Watts per app (CPU, GPU, Neural Engine) | the kernel's resource coalitions: `coalition_info_resource_usage`, including processes that already exited |
+| Per-process CPU watts | `proc_pid_rusage` → `ri_energy_nj` for your own processes; the rest of an app's energy is split by CPU time |
+| Per-process GPU | the app's GPU energy, split by the GPU time of each `IOAccelerator` user client |
 | Processes | one long-running `top` |
 | Battery and adapter | `AppleSmartBattery` and IOKit power sources |
 | Advice | `ps` while the tab is open; offscreen windows from `CGWindowListCopyWindowInfo` |
@@ -146,11 +147,12 @@ Some of these are private macOS interfaces, so the app cannot be sold in the Mac
   20 °C, especially on a fanless MacBook Air. That is why the big number is a 5-second average.
 - GPU busy time is the share of time the GPU has work, not the share of its power. At its
   lowest clock even light work shows 20–40 %; the watts show the real load.
-- Process heat is energy, not busy time: the kernel bills each process's CPU energy with the core
-  type and clock taken into account, and each process gets its share of the GPU's watts. macOS
-  hides the energy of other users' processes without root, so those are estimated from CPU time
-  and marked with ≈. The full-load maximum is measured per chip (Apple M5 Pro: 73 W with every
-  CPU and GPU core busy); other chips show shares of the total load by default.
+- Process heat is energy, not busy time. macOS keeps the CPU, GPU and Neural Engine energy of
+  each app with its helpers and child processes, also after a child exits, so a build made of
+  many short compiler runs still counts. Your own processes show their own CPU energy; the rest
+  of an app's energy is split between its processes by CPU time and marked with ≈. The full-load
+  maximum is measured per chip (Apple M5 Pro: 73 W with every CPU and GPU core busy); other chips
+  show shares of the total load by default.
 - The trackpad sensors (`Ts0P`, `Ts1P`) sit far from the chip. On a MacBook Air they stay near
   room temperature while the area above the keyboard is hot.
 - The adapter rating is the power the Mac and the adapter agreed on, not the number printed on

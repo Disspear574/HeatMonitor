@@ -417,6 +417,27 @@ enum SystemInfo {
         return (Double(free), Double(total))
     }
 
+    /// Names of the devices on the USB-C ports. macOS publishes no watts per port, so names only.
+    static func usbDevices() -> [String] {
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPort"), &it) == KERN_SUCCESS else { return [] }
+        defer { IOObjectRelease(it) }
+        var names: [String] = []
+        while case let s = IOIteratorNext(it), s != 0 {
+            defer { IOObjectRelease(s) }
+            func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(s, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+            guard prop("PortTypeDescription") as? String == "USB-C", prop("ConnectionActive") as? Bool == true else { continue }
+            // The USB transport under the port carries the data device's product name.
+            let product = IORegistryEntrySearchCFProperty(s, kIOServicePlane, "Product" as CFString, kCFAllocatorDefault,
+                                                          IOOptionBits(kIORegistryIterateRecursively)) as? String
+            if let name = usbDeviceName(sop: prop("SOPMfgString") as? String, product: product,
+                                        transports: prop("TransportsActive") as? [String] ?? []) {
+                names.append(name)
+            }
+        }
+        return names
+    }
+
     static func gpuUtilization() -> Double? {
         var it: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &it) == KERN_SUCCESS else { return nil }
@@ -714,6 +735,7 @@ final class Monitor: ObservableObject {
     @Published var swap: (used: Double, total: Double) = (0, 0)
     @Published var disk: (free: Double, total: Double)?
     @Published var battery: SystemInfo.Battery?
+    @Published var usbDevices: [String] = []
     @Published var fans: [SMCReader.Fan] = []
     @Published var palmRest: [Double] = []
     @Published var thermal = ProcessInfo.processInfo.thermalState
@@ -767,6 +789,7 @@ final class Monitor: ObservableObject {
         let memUsed: Double
         let swap: (used: Double, total: Double)
         let battery: SystemInfo.Battery?
+        let usbDevices: [String]
         let fans: [SMCReader.Fan]
         let palmRest: [Double]
         let disk: (free: Double, total: Double)?
@@ -966,7 +989,7 @@ final class Monitor: ObservableObject {
                                 gpuCores: smc.temperatures(coreKeys.gpu).map(\.value),
                                 gpu: SystemInfo.gpuUtilization(), gpuWatts: gpuPower.watts(), memUsed: SystemInfo.memoryUsed(),
                                 swap: SystemInfo.swap(), battery: SystemInfo.battery(systemW: power.system, adapterW: power.adapter),
-                                fans: smc.fans(), palmRest: smc.palmRest(), disk: readDisk ? SystemInfo.disk() : nil)
+                                usbDevices: SystemInfo.usbDevices(), fans: smc.fans(), palmRest: smc.palmRest(), disk: readDisk ? SystemInfo.disk() : nil)
             Task { @MainActor in self?.publish(snap) }
         }
     }
@@ -989,6 +1012,7 @@ final class Monitor: ObservableObject {
         memUsed = s.memUsed
         swap = s.swap
         battery = s.battery
+        if usbDevices != s.usbDevices { usbDevices = s.usbDevices }
         fans = s.fans
         if !fanBusy, fanTarget == s.fans.contains(where: \.manual) { fanTarget = nil }
         palmRest = s.palmRest

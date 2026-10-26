@@ -43,6 +43,7 @@
 "Адаптер" = "Adapter";
 "%.0f из %ld Вт" = "%.0f of %ld W";
 "не подключён" = "not connected";
+"На USB-C: %@" = "On USB-C: %@";
 "Здоровье" = "Health";
 "%ld цикл." = "%ld cycles";
 "%ld Вт" = "%ld W";

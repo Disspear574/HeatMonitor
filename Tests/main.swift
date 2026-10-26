@@ -73,5 +73,11 @@ check(adapterShort(batteryW: -2, adapterInW: nil, adapterMaxW: nil), "unknown ad
 check(!adapterShort(batteryW: -0.3, adapterInW: 84, adapterMaxW: 85), "draw below 0.5 W")
 check(!adapterShort(batteryW: nil, adapterInW: 84, adapterMaxW: 85), "no battery reading")
 
+// usbDeviceName: a device on a data wire is named, a charger on CC alone is not.
+check(usbDeviceName(sop: "iPhone", product: "iPhone", transports: ["CC", "USB2"]) == "iPhone", "locked iPhone")
+check(usbDeviceName(sop: nil, product: "USB2.0 Hub", transports: ["CC", "USB2", "DisplayPort"]) == "USB2.0 Hub", "no PD name")
+check(usbDeviceName(sop: "Apple", product: nil, transports: ["CC"]) == nil, "Mac's own charger")
+check(usbDeviceName(sop: " ", product: nil, transports: ["CC", "USB3"]) == nil, "blank name")
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

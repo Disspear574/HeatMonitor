@@ -102,6 +102,14 @@ func adapterShort(batteryW: Double?, adapterInW: Double?, adapterMaxW: Int?) -> 
     return inW >= Double(max) * 0.9
 }
 
+// A partner with only the CC wire active is a power source, such as the Mac's own USB-C charger, not a device.
+// The USB-PD name comes first: a locked iPhone gives it without a USB data connection.
+func usbDeviceName(sop: String?, product: String?, transports: [String]) -> String? {
+    guard transports.contains(where: { $0 != "CC" }) else { return nil }
+    let name = (sop ?? product)?.trimmingCharacters(in: .whitespaces)
+    return name?.isEmpty == false ? name : nil
+}
+
 // Measured members keep their watts; the rest of the app's energy, exited children included, goes by weight.
 func splitWatts(_ total: Double, weights: [(pid: Int32, weight: Double)], fixed: [Int32: Double]) -> [Int32: Double] {
     var out = fixed.filter { pid, _ in weights.contains { $0.pid == pid } }

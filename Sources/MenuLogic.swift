@@ -117,6 +117,13 @@ func deviceName(vendor: String?, model: String) -> String {
     return brand.isEmpty || model.lowercased().hasPrefix(brand.lowercased()) ? model : "\(brand) \(model)"
 }
 
+// USB product strings are firmware identifiers like "SAMSUNG_Android"; short all-caps words are acronyms and stay.
+func usbProductName(_ raw: String) -> String {
+    raw.split(whereSeparator: { $0 == "_" || $0 == " " }).map { w in
+        w.count >= 5 && w.allSatisfy(\.isUppercase) ? w.capitalized : String(w)
+    }.joined(separator: " ")
+}
+
 enum PowerVia: Equatable { case magSafe, charger, dock }
 
 // A port that offers the Mac power is a supply; one that also carries data or video is a dock.

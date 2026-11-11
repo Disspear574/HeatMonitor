@@ -430,8 +430,8 @@ enum SystemInfo {
             guard let type = prop("PortTypeDescription") as? String, type == "USB-C" || type.hasPrefix("MagSafe"),
                   prop("ConnectionActive") as? Bool == true else { continue }
             // The USB transport under the port carries the data device's product name.
-            let product = IORegistryEntrySearchCFProperty(s, kIOServicePlane, "Product" as CFString, kCFAllocatorDefault,
-                                                          IOOptionBits(kIORegistryIterateRecursively)) as? String
+            let product = (IORegistryEntrySearchCFProperty(s, kIOServicePlane, "Product" as CFString, kCFAllocatorDefault,
+                                                          IOOptionBits(kIORegistryIterateRecursively)) as? String).map(usbProductName)
             let supply = powerIn(s)
             let tb = (prop("PortNumber") as? Int).flatMap { thunderbolt[$0] }
             // A supply's USB and PD names are its hub and controller; a port with no PD partner reports "Macintosh".

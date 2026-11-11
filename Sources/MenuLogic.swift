@@ -102,6 +102,45 @@ func adapterShort(batteryW: Double?, adapterInW: Double?, adapterMaxW: Int?) -> 
     return inW >= Double(max) * 0.9
 }
 
+/// A connected Mac port: what is plugged in and whether it powers the Mac.
+struct PortLink: Equatable {
+    let type: String
+    let name: String?
+    let transports: [String]
+    let supplyW: Int?
+    let powersMac: Bool
+    var budgetW: Double? = nil
+}
+
+func deviceName(vendor: String?, model: String) -> String {
+    let brand = vendor?.split(separator: " ").first.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ",.")) } ?? ""
+    return brand.isEmpty || model.lowercased().hasPrefix(brand.lowercased()) ? model : "\(brand) \(model)"
+}
+
+enum PowerVia: Equatable { case magSafe, charger, dock }
+
+// A port that offers the Mac power is a supply; one that also carries data or video is a dock.
+func powerVia(_ p: PortLink) -> PowerVia? {
+    guard p.supplyW != nil else { return nil }
+    if p.type.hasPrefix("MagSafe") { return .magSafe }
+    return p.transports.contains { $0 != "CC" } ? .dock : .charger
+}
+
+func usbDevices(_ ports: [PortLink]) -> [(name: String, budgetW: Double?)] {
+    ports.compactMap { p in
+        guard p.type == "USB-C", p.supplyW == nil, p.transports.contains(where: { $0 != "CC" }),
+              let name = p.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return nil }
+        return (name, p.budgetW)
+    }
+}
+
+// The Mac draws from one supply at a time, the one that offers the most power; the rest stand idle.
+func powerSupplies(_ ports: [PortLink]) -> (active: PowerVia, name: String?, idle: [(via: PowerVia, watts: Int?)])? {
+    guard let port = ports.first(where: \.powersMac), let active = powerVia(port) else { return nil }
+    let idle = ports.filter { !$0.powersMac }.compactMap { p in powerVia(p).map { (via: $0, watts: p.supplyW) } }
+    return (active, active == .dock ? port.name : nil, idle)
+}
+
 // Measured members keep their watts; the rest of the app's energy, exited children included, goes by weight.
 func splitWatts(_ total: Double, weights: [(pid: Int32, weight: Double)], fixed: [Int32: Double]) -> [Int32: Double] {
     var out = fixed.filter { pid, _ in weights.contains { $0.pid == pid } }
@@ -114,4 +153,24 @@ func splitWatts(_ total: Double, weights: [(pid: Int32, weight: Double)], fixed:
         out[first.pid, default: 0] += rest
     }
     return out
+}
+
+// CPU tools report 100% per logical core; the UI uses 100% for the whole CPU.
+func machineCPUPercent(_ corePercent: Double, cores: Int) -> Double {
+    guard corePercent.isFinite else { return 0 }
+    return max(0, corePercent) / Double(max(cores, 1))
+}
+
+// A fresh interval is required: a lifetime average is not a current reading.
+func intervalCPU(previous: Double?, current: Double, seconds: Double) -> Double? {
+    guard let previous, previous.isFinite, current.isFinite, seconds.isFinite,
+          seconds > 0, current >= previous else { return nil }
+    return (current - previous) / seconds * 100
+}
+
+func percentText(_ value: Double) -> String {
+    guard value.isFinite, value >= 0 else { return "—" }
+    if value == 0 { return "0%" }
+    if value < 0.1 { return "<0.1%" }
+    return String(format: value < 10 ? "%.1f%%" : "%.0f%%", value)
 }

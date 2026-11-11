@@ -43,6 +43,17 @@
 "Адаптер" = "Adapter";
 "%.0f из %ld Вт" = "%.0f of %ld W";
 "не подключён" = "not connected";
+"На USB-C: %@" = "On USB-C: %@";
+"Питание: %@." = "Power: %@.";
+"через MagSafe" = "via MagSafe";
+"через зарядку USB-C" = "via a USB-C charger";
+"через док-станцию" = "via a dock";
+"через док-станцию %@" = "via the %@ dock";
+"%@ (до %@)" = "%@ (up to %@)";
+"Зарядка USB-C" = "USB-C charger";
+"Док-станция" = "Dock";
+"%@ до %ld Вт не используется." = "%@ up to %ld W is not used.";
+"%@ не используется." = "%@ is not used.";
 "Здоровье" = "Health";
 "%ld цикл." = "%ld cycles";
 "%ld Вт" = "%ld W";
@@ -179,3 +190,20 @@
 "Панель" = "Panel";
 "Температура и график" = "Temperature and chart";
 "Датчики" = "Sensors";
+
+/* Percentage semantics */
+"CPU: 100% — весь процессор, а не одно ядро." = "CPU: 100% means the whole processor, not one core.";
+"Время GPU" = "GPU time";
+"Время GPU за интервал. Это не доля общей мощности GPU; значения процессов могут суммироваться выше 100%." = "GPU time over the interval. This is not a share of total GPU capacity; process values may add up to more than 100%.";
+"CPU %@ · работает %@ · служебных окон вне экрана: %ld · дисплеев: %ld" = "CPU %@ · running for %@ · offscreen utility windows: %ld · displays: %ld";
+"сейчас %@ · в среднем %@ за %@" = "now %@ · average %@ over %@";
+"Ожидание следующего замера CPU…" = "Waiting for the next CPU sample…";
+"У WindowServer большой срок работы или много служебных окон вне экрана. Само по себе это не доказывает проблему. Сначала скройте приложения по одному и сравните CPU. Если нагрузка сохраняется в покое, сохраните работу и попробуйте выйти из системы и войти снова." = "WindowServer has a long uptime or many offscreen utility windows. This alone does not prove a problem. First hide apps one by one and compare CPU usage. If usage stays high at idle, save your work and try logging out and back in.";
+
+/* Load explanation */
+"≈%.1f ядра" = "≈%.1f cores";
+"По шкале одного ядра: %.1f%%." = "On the single-core scale: %.1f%%.";
+"нагрев — доля учтённой энергии CPU и GPU, не загрузка CPU; ≈ — оценка" = "heat is a share of accounted CPU and GPU energy, not CPU utilization; ≈ means estimated";
+"CPU всего: %@ · в показанных строках: %@ · во всей выборке: %@" = "Total CPU: %@ · displayed rows: %@ · entire sample: %@";
+"Строк: %ld из %ld" = "Rows: %ld of %ld";
+"Общий CPU включает все процессы. Список ограничен 120 процессами и 40 строками; доли округлены, показания разных источников могут немного расходиться. Нажмите CPU, чтобы сортировать по загрузке процессора." = "Total CPU includes all processes. The list is limited to 120 processes and 40 rows; values are rounded and different sources may differ slightly. Click CPU to sort by processor usage.";

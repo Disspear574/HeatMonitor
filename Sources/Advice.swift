@@ -66,7 +66,8 @@ final class AdviceModel: ObservableObject {
     @Published var message: String?
 
     private var previous: [Int32: Double] = [:]
-    private var lastRead = Date()
+    private var lastRead = ProcessInfo.processInfo.systemUptime
+    @Published private(set) var hasCPUSample = false
     private var timer: Timer?
     private let io = DispatchQueue(label: "advice", qos: .utility)
 
@@ -86,6 +87,9 @@ final class AdviceModel: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
+        previous = [:]
+        hasCPUSample = false
+        lastRead = ProcessInfo.processInfo.systemUptime
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -105,15 +109,15 @@ final class AdviceModel: ObservableObject {
     }
 
     private func apply(_ raw: [ProcInfo], shieldsByOwner: [Int32: Int], displays: Int) {
-        let now = Date()
-        let dt = now.timeIntervalSince(lastRead)
+        let now = ProcessInfo.processInfo.systemUptime
+        let dt = now - lastRead
         lastRead = now
         let me = getuid()
+        hasCPUSample = !previous.isEmpty && dt > 0.5
         let procs = raw.map { p -> ProcInfo in
             var p = p
-            // CPU since the previous snapshot; the first one has none, so it falls back to the lifetime average.
-            if let before = previous[p.pid], dt > 0.5 { p.cpu = max(0, (p.cpuTime - before) / dt * 100) }
-            else if p.elapsed > 0 { p.cpu = p.cpuTime / p.elapsed * 100 }
+            // No interval yet (or a new process): never substitute its lifetime average.
+            p.cpu = intervalCPU(previous: previous[p.pid], current: p.cpuTime, seconds: dt) ?? 0
             return p
         }
         previous = Dictionary(procs.map { ($0.pid, $0.cpuTime) }, uniquingKeysWith: { a, _ in a })
@@ -191,7 +195,7 @@ final class AdviceModel: ObservableObject {
 }
 
 // ps reports percent of one core; the process table shows a share of all cores, so the tab does the same.
-func share(_ cpu: Double) -> Int { Int((cpu / Double(max(SystemInfo.cores, 1))).rounded()) }
+func share(_ cpu: Double) -> String { percentText(machineCPUPercent(cpu, cores: SystemInfo.cores)) }
 
 func duration(_ s: Double) -> String {
     let m = Int(s) / 60
@@ -243,12 +247,13 @@ struct AdviceView: View {
         let color: Color = !busy ? .green : stale ? .orange : .yellow
         return AdviceCard(color: color, title: tr("WindowServer — рисует весь экран")) {
             if let ws {
-                Text(String(format: tr("CPU %ld%% · работает %@ · окон от отключённых дисплеев: %ld · дисплеев: %ld"),
-                            share(ws.cpu), duration(ws.uptime), ws.shields, ws.displays))
+                Text(String(format: tr("CPU %@ · работает %@ · служебных окон вне экрана: %ld · дисплеев: %ld"),
+                            model.hasCPUSample ? share(ws.cpu) : "—", duration(ws.uptime), ws.shields, ws.displays))
                     .monospacedDigit()
             }
-            Text(!busy ? tr("В норме.")
-                 : stale ? tr("WindowServer давно не перезапускался и хранит окна дисплеев, которые уже отключены. Такой WindowServer тратит CPU сам по себе: прятать или закрывать приложения бесполезно. Выйдите из системы и войдите снова или перезагрузите Mac.")
+            Text("CPU: 100% — весь процессор, а не одно ядро.").font(.caption).foregroundStyle(.secondary)
+            Text(!model.hasCPUSample ? tr("Ожидание следующего замера CPU…") : !busy ? tr("В норме.")
+                 : stale ? tr("У WindowServer большой срок работы или много служебных окон вне экрана. Само по себе это не доказывает проблему. Сначала скройте приложения по одному и сравните CPU. Если нагрузка сохраняется в покое, сохраните работу и попробуйте выйти из системы и войти снова.")
                  : tr("WindowServer рисует то, что показывают приложения. Чаще всего его грузят видео, анимации и окна на Electron. Прячьте приложения по одному (⌘H) и смотрите, когда CPU упадёт."))
                 .foregroundStyle(.secondary)
         }
@@ -262,7 +267,7 @@ struct AdviceView: View {
             ForEach(model.services) { s in
                 HStack {
                     Text(s.name).lineLimit(1).truncationMode(.middle).help(s.name)
-                    Text(String(format: tr("сейчас %ld%% · в среднем %ld%% за %@"), share(s.cpu), share(s.average), duration(s.uptime)))
+                    Text(String(format: tr("сейчас %@ · в среднем %@ за %@"), model.hasCPUSample ? share(s.cpu) : "—", share(s.average), duration(s.uptime)))
                         .foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
                     Spacer()
                     if s.mine {
@@ -284,7 +289,7 @@ struct AdviceView: View {
             ForEach(model.dev) { g in
                 HStack {
                     Text(tr(g.title)).lineLimit(1)
-                    Text(String(format: tr("процессов: %ld"), g.procs.count) + " · CPU \(share(g.cpu))% · " + String(format: tr("%@ ГБ"), gb(g.rss)))
+                    Text(String(format: tr("процессов: %ld"), g.procs.count) + " · CPU \(model.hasCPUSample ? share(g.cpu) : "—") · " + String(format: tr("%@ ГБ"), gb(g.rss)))
                         .foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
                     Spacer()
                     Button("Остановить") { model.stop(g) }

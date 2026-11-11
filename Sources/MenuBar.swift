@@ -111,6 +111,14 @@ struct MenuPanel: View {
                 let s = adapterStatus(b)
                 Label(s.1, systemImage: s.0).font(.callout).foregroundStyle(s.2).fixedSize(horizontal: false, vertical: true)
             }
+            if blocks.contains(.power), let p = powerSupplies(m.ports) {
+                Label(supplyText(p), systemImage: "powerplug")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if blocks.contains(.power), case let devices = usbDevices(m.ports), !devices.isEmpty {
+                Label("На USB-C: \(devices.map(deviceText).joined(separator: ", "))", systemImage: "cable.connector")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if blocks.contains(.apps) { apps }
             if blocks.contains(.fans), !m.fans.isEmpty { FanSwitch(m: m) }
             Divider()

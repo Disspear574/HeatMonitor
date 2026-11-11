@@ -417,6 +417,102 @@ enum SystemInfo {
         return (Double(free), Double(total))
     }
 
+    /// Connected USB-C and MagSafe ports. macOS publishes no watts going out to a device, only the bus power it reserves.
+    static func ports() -> [PortLink] {
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPort"), &it) == KERN_SUCCESS else { return [] }
+        defer { IOObjectRelease(it) }
+        var links: [PortLink] = []
+        let thunderbolt = thunderboltDevices()
+        while case let s = IOIteratorNext(it), s != 0 {
+            defer { IOObjectRelease(s) }
+            func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(s, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+            guard let type = prop("PortTypeDescription") as? String, type == "USB-C" || type.hasPrefix("MagSafe"),
+                  prop("ConnectionActive") as? Bool == true else { continue }
+            // The USB transport under the port carries the data device's product name.
+            let product = IORegistryEntrySearchCFProperty(s, kIOServicePlane, "Product" as CFString, kCFAllocatorDefault,
+                                                          IOOptionBits(kIORegistryIterateRecursively)) as? String
+            let supply = powerIn(s)
+            let tb = (prop("PortNumber") as? Int).flatMap { thunderbolt[$0] }
+            // A supply's USB and PD names are its hub and controller; a port with no PD partner reports "Macintosh".
+            let name = supply.watts != nil ? tb : tb ?? product ?? prop("SOPMfgString") as? String
+            links.append(PortLink(type: type, name: name, transports: prop("TransportsActive") as? [String] ?? [],
+                                  supplyW: supply.watts, powersMac: supply.selected, budgetW: usbBudgetW(s)))
+        }
+        return links
+    }
+
+    // A Thunderbolt socket number is the USB-C port's "PortNumber".
+    private static func thunderboltDevices() -> [Int: String] {
+        var out: [Int: String] = [:]
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOThunderboltSwitch"), &it) == KERN_SUCCESS else { return out }
+        defer { IOObjectRelease(it) }
+        while case let s = IOIteratorNext(it), s != 0 {
+            defer { IOObjectRelease(s) }
+            func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(s, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+            let socket = IORegistryEntrySearchCFProperty(s, kIOServicePlane, "Socket ID" as CFString, kCFAllocatorDefault,
+                                                         IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)) as? String
+            guard prop("Depth") as? Int == 1, let model = prop("Device Model Name") as? String, let n = socket.flatMap({ Int($0) }) else { continue }
+            out[n] = deviceName(vendor: prop("Device Vendor Name") as? String, model: model)
+        }
+        return out
+    }
+
+    // The bus power macOS reserves for the port's USB device, at 5 V: a ceiling, not a reading.
+    private static func usbBudgetW(_ port: io_service_t) -> Double? {
+        var meta: [String: Any]?
+        forEachChild(port) { transport, name in
+            guard meta == nil, name == "USB3" || name == "USB2",
+                  let m = IORegistryEntryCreateCFProperty(transport, "Metadata" as CFString, kCFAllocatorDefault, 0)?
+                      .takeRetainedValue() as? [String: Any], m["Vendor ID"] != nil else { return }
+            meta = m
+        }
+        guard let vendor = meta?["Vendor ID"] as? Int, let product = meta?["Product ID"] as? Int else { return nil }
+        let match = IOServiceMatching("IOUSBHostDevice") as NSMutableDictionary
+        match["idVendor"] = vendor
+        match["idProduct"] = product
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, match, &it) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(it) }
+        var mA: Int?
+        while case let d = IOIteratorNext(it), d != 0 {
+            defer { IOObjectRelease(d) }
+            func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(d, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+            guard let a = prop("UsbPowerSinkAllocation") as? Int else { continue }
+            if mA == nil || prop("USB Serial Number") as? String == meta?["Serial Number"] as? String { mA = a }
+        }
+        return mA.map { Double($0) * 5 / 1000 }
+    }
+
+    // Power sources the partner offers sit under the port's "Power In"; only the one the Mac uses has a winning option.
+    private static func powerIn(_ port: io_service_t) -> (watts: Int?, selected: Bool) {
+        var watts: Int?, selected = false
+        forEachChild(port) { feature, name in
+            guard name == "Power In" else { return }
+            forEachChild(feature) { source, _ in
+                func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(source, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+                if prop("WinningPowerSourceOption") != nil { selected = true }
+                // The options come as a set, not an array.
+                let options = (prop("PowerSourceOptions") as? NSSet)?.allObjects as? [[String: Any]] ?? []
+                for mW in options.compactMap({ $0["Max Power (mW)"] as? Int }) { watts = max(watts ?? 0, mW / 1000) }
+            }
+        }
+        return (watts, selected)
+    }
+
+    private static func forEachChild(_ entry: io_registry_entry_t, _ body: (io_registry_entry_t, String) -> Void) {
+        var it: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(entry, kIOServicePlane, &it) == KERN_SUCCESS else { return }
+        defer { IOObjectRelease(it) }
+        while case let c = IOIteratorNext(it), c != 0 {
+            defer { IOObjectRelease(c) }
+            var name = [CChar](repeating: 0, count: 128)
+            IORegistryEntryGetName(c, &name)
+            body(c, String(cString: name))
+        }
+    }
+
     static func gpuUtilization() -> Double? {
         var it: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &it) == KERN_SUCCESS else { return nil }
@@ -613,7 +709,7 @@ struct Row: Identifiable {
     var memMB: Double
     var pids: [Int32]
     // Share of all cores, like Windows Task Manager.
-    var cpuShare: Double { cpu / Double(max(SystemInfo.cores, 1)) }
+    var cpuShare: Double { machineCPUPercent(cpu, cores: SystemInfo.cores) }
     // Watts, not percent: a busy-time share at low clocks says little about heat.
     var heat: Double { cpuW + gpuW }
     var count: Int { pids.count }
@@ -701,6 +797,8 @@ final class Monitor: ObservableObject {
     @Published private(set) var heatCeiling = Monitor.measuredCeiling ?? max(UserDefaults.standard.double(forKey: "heatCeiling"), 30)
     // Watts of every listed process: 100% heat when shares are taken of the total.
     @Published private(set) var heatTotal = 0.0
+    @Published private(set) var sampledCPU = 0.0
+    @Published private(set) var sampledRows = 0
     nonisolated static let measuredCeiling = maxWattsByChip[chipName()]
     var heatBase: HeatBase {
         (HeatBase(rawValue: UserDefaults.standard.string(forKey: Pref.heatBase) ?? "") ?? .auto).resolved(measured: Self.measuredCeiling != nil)
@@ -714,6 +812,7 @@ final class Monitor: ObservableObject {
     @Published var swap: (used: Double, total: Double) = (0, 0)
     @Published var disk: (free: Double, total: Double)?
     @Published var battery: SystemInfo.Battery?
+    @Published var ports: [PortLink] = []
     @Published var fans: [SMCReader.Fan] = []
     @Published var palmRest: [Double] = []
     @Published var thermal = ProcessInfo.processInfo.thermalState
@@ -767,6 +866,7 @@ final class Monitor: ObservableObject {
         let memUsed: Double
         let swap: (used: Double, total: Double)
         let battery: SystemInfo.Battery?
+        let ports: [PortLink]
         let fans: [SMCReader.Fan]
         let palmRest: [Double]
         let disk: (free: Double, total: Double)?
@@ -966,7 +1066,7 @@ final class Monitor: ObservableObject {
                                 gpuCores: smc.temperatures(coreKeys.gpu).map(\.value),
                                 gpu: SystemInfo.gpuUtilization(), gpuWatts: gpuPower.watts(), memUsed: SystemInfo.memoryUsed(),
                                 swap: SystemInfo.swap(), battery: SystemInfo.battery(systemW: power.system, adapterW: power.adapter),
-                                fans: smc.fans(), palmRest: smc.palmRest(), disk: readDisk ? SystemInfo.disk() : nil)
+                                ports: SystemInfo.ports(), fans: smc.fans(), palmRest: smc.palmRest(), disk: readDisk ? SystemInfo.disk() : nil)
             Task { @MainActor in self?.publish(snap) }
         }
     }
@@ -989,6 +1089,7 @@ final class Monitor: ObservableObject {
         memUsed = s.memUsed
         swap = s.swap
         battery = s.battery
+        if ports != s.ports { ports = s.ports }
         fans = s.fans
         if !fanBusy, fanTarget == s.fans.contains(where: \.manual) { fanTarget = nil }
         palmRest = s.palmRest
@@ -1040,6 +1141,8 @@ final class Monitor: ObservableObject {
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) { rows = Array(r.prefix(40)) }
+        sampledCPU = r.reduce(0) { $0 + $1.cpuShare }
+        sampledRows = r.count
         let total = r.reduce(0) { $0 + $1.heat }
         heatTotal = total
         if Self.measuredCeiling == nil, total > heatCeiling {
@@ -1054,7 +1157,7 @@ final class Monitor: ObservableObject {
     var heatCaption: String {
         let watts = String(format: "%.0f", heatCeiling)
         switch heatBase {
-        case .total: return tr("нагрев = доля в общей нагрузке CPU и GPU; ≈ — оценка")
+        case .total: return tr("нагрев — доля учтённой энергии CPU и GPU, не загрузка CPU; ≈ — оценка")
         case _ where Self.measuredCeiling == nil:
             return String(format: tr("нагрев = доля от наибольшей замеченной нагрузки (%@ Вт); ≈ — оценка"), watts)
         default: return String(format: tr("нагрев = доля от максимума CPU и GPU (%@ Вт); ≈ — оценка"), watts)
@@ -1112,7 +1215,7 @@ func w(_ v: Double?) -> String { v.map { String(format: tr("%.1f Вт"), $0) } ?
 // Processes mostly draw well under a watt, so those get two decimals.
 func wFine(_ v: Double) -> String { String(format: tr(v < 1 ? "%.2f Вт" : "%.1f Вт"), v) }
 // Most processes sit well under 1% of full load, so small shares keep a decimal.
-func pct(_ v: Double) -> String { v < 0.1 ? "<0.1%" : String(format: v < 10 ? "%.1f%%" : "%.0f%%", v) }
+func pct(_ v: Double) -> String { percentText(v) }
 func tr(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 func ofGB(_ used: Double, _ total: Double) -> String { String(format: tr("%@ из %@ ГБ"), gb(used), gbTotal(total)) }
 
@@ -1284,7 +1387,7 @@ struct Header: View {
                     }
                     GridRow {
                         SectionTitle("Нагрузка")
-                        Stat(title: "CPU · \(SystemInfo.cores) ядер", value: String(format: "%.0f%%", m.cpuUsage))
+                        Stat(title: "CPU · \(SystemInfo.cores) ядер", value: pct(m.cpuUsage) + " · " + String(format: tr("≈%.1f ядра"), m.cpuUsage / 100 * Double(SystemInfo.cores)))
                         Stat(title: "GPU", value: gpuText)
                             .help("Доля времени, когда GPU занят. На низкой частоте лёгкая работа даёт десятки процентов; реальную нагрузку показывают ватты")
                         Stat(title: "Память", value: ofGB(m.memUsed, SystemInfo.totalRAM))
@@ -1385,6 +1488,25 @@ struct PowerRow: View {
     }
 }
 
+func deviceText(_ d: (name: String, budgetW: Double?)) -> String {
+    d.budgetW.map { String(format: tr("%@ (до %@)"), d.name, w($0)) } ?? d.name
+}
+
+func supplyText(_ p: (active: PowerVia, name: String?, idle: [(via: PowerVia, watts: Int?)])) -> String {
+    func via(_ v: PowerVia) -> String {
+        if v == .dock, let n = p.name { return String(format: tr("через док-станцию %@"), n) }
+        switch v { case .magSafe: return tr("через MagSafe"); case .charger: return tr("через зарядку USB-C"); case .dock: return tr("через док-станцию") }
+    }
+    func name(_ v: PowerVia) -> String {
+        switch v { case .magSafe: "MagSafe"; case .charger: tr("Зарядка USB-C"); case .dock: tr("Док-станция") }
+    }
+    let idle = p.idle.map { s in
+        s.watts.map { String(format: tr("%@ до %ld Вт не используется."), name(s.via), $0) }
+            ?? String(format: tr("%@ не используется."), name(s.via))
+    }
+    return ([String(format: tr("Питание: %@."), via(p.active))] + idle).joined(separator: " ")
+}
+
 func adapterStatus(_ b: SystemInfo.Battery) -> (String, String, Color) {
     guard b.plugged else {
         return ("battery.50percent", String(format: tr("Работает от батареи: Mac берёт %@."), w(b.systemW)), .secondary)
@@ -1426,7 +1548,10 @@ struct HeatBar: View {
                     .frame(width: 50 * min(max(share, 0), 1))
             }
             .frame(width: 50, height: 6)
-            Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
+            VStack(alignment: .trailing, spacing: 1) {
+                Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
+                Text((estimated ? "≈" : "") + wFine(watts)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
         }
         .help(wFine(watts) + " · " + tr(estimated ? "Оценка по времени CPU: macOS считает энергию на всё приложение, здесь она поделена между его процессами"
               : "Энергия CPU по учёту macOS плюс доля энергии GPU"))
@@ -1455,7 +1580,6 @@ struct ProcessTable: View {
     @Binding var columns: TableColumnCustomization<Row>
 
     var body: some View {
-        let maxHeat = max(m.rows.map(\.heat).max() ?? 0, 0.5)
         Table(m.rows, selection: $selection, sortOrder: $m.sortOrder, columnCustomization: $columns) {
             TableColumn("Процесс", value: \.name) { row in
                 HStack(spacing: 6) {
@@ -1473,23 +1597,29 @@ struct ProcessTable: View {
             .customizationID("name")
             .disabledCustomizationBehavior(.visibility)
             TableColumn("Нагрев", value: \.heat) { row in
-                HeatBar(percent: m.heatShare(row), watts: row.heat, share: row.heat / maxHeat, estimated: row.estimated)
+                HeatBar(percent: m.heatShare(row), watts: row.heat, share: m.heatShare(row) / 100, estimated: row.estimated)
             }
-            .width(110)
+            .width(145)
             .customizationID("heat")
-            TableColumn(String(format: "CPU %.0f%%", m.cpuUsage), value: \.cpuShare) { row in
-                Text(String(format: "%.1f%%", row.cpuShare)).monospacedDigit().frame(maxWidth: .infinity, alignment: .trailing)
+            TableColumn("CPU", value: \.cpuShare) { row in
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(pct(row.cpuShare)).monospacedDigit()
+                    Text(String(format: tr("≈%.1f ядра"), row.cpu / 100)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .help(tr("CPU: 100% — весь процессор, а не одно ядро.") + " " + String(format: tr("По шкале одного ядра: %.1f%%."), row.cpu))
             }
-            .width(80)
+            .width(100)
             .customizationID("cpu")
-            TableColumn(m.gpu.map { String(format: "GPU %.0f%%", $0) } ?? "GPU", value: \.gpu) { row in
-                Text(row.gpu < 0.05 ? "—" : String(format: "%.1f%%", row.gpu)).monospacedDigit()
+            TableColumn("Время GPU", value: \.gpu) { row in
+                Text(pct(row.gpu)).monospacedDigit()
+                    .help(tr("Время GPU за интервал. Это не доля общей мощности GPU; значения процессов могут суммироваться выше 100%."))
                     .foregroundStyle(row.gpu < 0.05 ? .secondary : .primary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .width(80)
             .customizationID("gpu")
-            TableColumn("Память \(gb(m.memUsed)) ГБ", value: \.memMB) { row in
+            TableColumn("Память", value: \.memMB) { row in
                 Text(row.memMB >= 1024 ? String(format: tr("%.1f ГБ"), row.memMB / 1024) : String(format: tr("%.0f МБ"), row.memMB))
                     .monospacedDigit().frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -1716,6 +1846,15 @@ struct ContentView: View {
                 SensorsButton()
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
+            HStack {
+                Text(String(format: tr("CPU всего: %@ · в показанных строках: %@ · во всей выборке: %@"),
+                            pct(m.cpuUsage), pct(m.rows.reduce(0) { $0 + $1.cpuShare }), pct(m.sampledCPU)))
+                Spacer()
+                Text(String(format: tr("Строк: %ld из %ld"), m.rows.count, m.sampledRows))
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, 16).padding(.bottom, 6)
+            .help(tr("Общий CPU включает все процессы. Список ограничен 120 процессами и 40 строками; доли округлены, показания разных источников могут немного расходиться. Нажмите CPU, чтобы сортировать по загрузке процессора."))
             ProcessTable(m: m, selection: $selection, columns: $columns)
                 .overlay {
                     if m.rows.isEmpty {

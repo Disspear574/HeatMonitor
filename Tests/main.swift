@@ -73,5 +73,41 @@ check(adapterShort(batteryW: -2, adapterInW: nil, adapterMaxW: nil), "unknown ad
 check(!adapterShort(batteryW: -0.3, adapterInW: 84, adapterMaxW: 85), "draw below 0.5 W")
 check(!adapterShort(batteryW: nil, adapterInW: 84, adapterMaxW: 85), "no battery reading")
 
+// usbDevices: a device on a data wire is named, a supply is not.
+let iPhone = PortLink(type: "USB-C", name: "iPhone", transports: ["CC", "USB2"], supplyW: nil, powersMac: false, budgetW: 12)
+let dock = PortLink(type: "USB-C", name: "Ugreen Thunderbolt 4 Docking Station", transports: ["CC", "USB2", "CIO"], supplyW: 85, powersMac: true)
+let charger = PortLink(type: "USB-C", name: nil, transports: ["CC"], supplyW: 96, powersMac: false)
+let magSafe = PortLink(type: "MagSafe 3", name: nil, transports: ["CC"], supplyW: 140, powersMac: false)
+let devices = usbDevices([iPhone, dock, charger, magSafe])
+check(devices.map(\.name) == ["iPhone"] && devices.first?.budgetW == 12, "dock and chargers are not devices; budget kept")
+check(usbDevices([PortLink(type: "USB-C", name: " ", transports: ["CC", "USB3"], supplyW: nil, powersMac: false)]).isEmpty, "blank name")
+check(usbDevices([PortLink(type: "USB-C", name: "Cable", transports: ["CC"], supplyW: nil, powersMac: false)]).isEmpty, "CC only")
+
+// powerSupplies: the marked port powers the Mac, other supplies stand idle.
+check(powerVia(dock) == .dock && powerVia(charger) == .charger && powerVia(magSafe) == .magSafe && powerVia(iPhone) == nil, "supply kinds")
+let both = powerSupplies([iPhone, dock, magSafe])
+check(both?.active == .dock && both?.idle.count == 1 && both?.idle.first?.via == .magSafe && both?.idle.first?.watts == 140, "dock wins, MagSafe idle")
+check(both?.name == "Ugreen Thunderbolt 4 Docking Station", "active dock keeps its name")
+check(powerSupplies([PortLink(type: "USB-C", name: "x", transports: ["CC"], supplyW: 96, powersMac: true)])?.name == nil, "a charger is not named")
+check(powerSupplies([iPhone, magSafe]) == nil, "no marked supply")
+
+// deviceName: the vendor's first word goes before the model unless the model already has it.
+check(deviceName(vendor: "Ugreen Group Limited", model: "Thunderbolt 4 Docking Station (8-in-1)") == "Ugreen Thunderbolt 4 Docking Station (8-in-1)", "brand added")
+check(deviceName(vendor: "CalDigit, Inc.", model: "CalDigit TS4") == "CalDigit TS4", "brand already in model")
+check(deviceName(vendor: nil, model: "TS4") == "TS4", "no vendor")
+
+// Percentages use the whole CPU, keep small loads visible, and require fresh deltas.
+check(machineCPUPercent(42, cores: 12) == 3.5, "42% of one core is 3.5% of a 12-core CPU")
+check(machineCPUPercent(1200, cores: 12) == 100, "all cores fully busy")
+check(machineCPUPercent(100, cores: 0) == 100, "invalid core count has safe fallback")
+check(percentText(0) == "0%", "zero is zero, not less than 0.1")
+check(percentText(0.04) == "<0.1%", "tiny positive load stays visible")
+check(percentText(3.5) == "3.5%", "small load retains precision")
+check(percentText(.nan) == "—", "invalid reading is unavailable")
+check(intervalCPU(previous: nil, current: 999, seconds: 5) == nil, "first reading has no current CPU")
+check(intervalCPU(previous: 100, current: 102.1, seconds: 5).map { abs($0 - 42) < 0.0001 } == true, "CPU delta over interval")
+check(intervalCPU(previous: 100, current: 2, seconds: 5) == nil, "reset counter is unavailable")
+check(intervalCPU(previous: 1, current: 2, seconds: 0) == nil, "zero interval is unavailable")
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

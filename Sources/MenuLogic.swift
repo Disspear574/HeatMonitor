@@ -102,12 +102,43 @@ func adapterShort(batteryW: Double?, adapterInW: Double?, adapterMaxW: Int?) -> 
     return inW >= Double(max) * 0.9
 }
 
-// A partner with only the CC wire active is a power source, such as the Mac's own USB-C charger, not a device.
-// The USB-PD name comes first: a locked iPhone gives it without a USB data connection.
-func usbDeviceName(sop: String?, product: String?, transports: [String]) -> String? {
-    guard transports.contains(where: { $0 != "CC" }) else { return nil }
-    let name = (sop ?? product)?.trimmingCharacters(in: .whitespaces)
-    return name?.isEmpty == false ? name : nil
+/// A connected Mac port: what is plugged in and whether it powers the Mac.
+struct PortLink: Equatable {
+    let type: String
+    let name: String?
+    let transports: [String]
+    let supplyW: Int?
+    let powersMac: Bool
+    var budgetW: Double? = nil
+}
+
+func deviceName(vendor: String?, model: String) -> String {
+    let brand = vendor?.split(separator: " ").first.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ",.")) } ?? ""
+    return brand.isEmpty || model.lowercased().hasPrefix(brand.lowercased()) ? model : "\(brand) \(model)"
+}
+
+enum PowerVia: Equatable { case magSafe, charger, dock }
+
+// A port that offers the Mac power is a supply; one that also carries data or video is a dock.
+func powerVia(_ p: PortLink) -> PowerVia? {
+    guard p.supplyW != nil else { return nil }
+    if p.type.hasPrefix("MagSafe") { return .magSafe }
+    return p.transports.contains { $0 != "CC" } ? .dock : .charger
+}
+
+func usbDevices(_ ports: [PortLink]) -> [(name: String, budgetW: Double?)] {
+    ports.compactMap { p in
+        guard p.type == "USB-C", p.supplyW == nil, p.transports.contains(where: { $0 != "CC" }),
+              let name = p.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return nil }
+        return (name, p.budgetW)
+    }
+}
+
+// The Mac draws from one supply at a time, the one that offers the most power; the rest stand idle.
+func powerSupplies(_ ports: [PortLink]) -> (active: PowerVia, name: String?, idle: [(via: PowerVia, watts: Int?)])? {
+    guard let port = ports.first(where: \.powersMac), let active = powerVia(port) else { return nil }
+    let idle = ports.filter { !$0.powersMac }.compactMap { p in powerVia(p).map { (via: $0, watts: p.supplyW) } }
+    return (active, active == .dock ? port.name : nil, idle)
 }
 
 // Measured members keep their watts; the rest of the app's energy, exited children included, goes by weight.

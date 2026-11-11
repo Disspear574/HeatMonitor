@@ -417,25 +417,100 @@ enum SystemInfo {
         return (Double(free), Double(total))
     }
 
-    /// Names of the devices on the USB-C ports. macOS publishes no watts per port, so names only.
-    static func usbDevices() -> [String] {
+    /// Connected USB-C and MagSafe ports. macOS publishes no watts going out to a device, only the bus power it reserves.
+    static func ports() -> [PortLink] {
         var it: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPort"), &it) == KERN_SUCCESS else { return [] }
         defer { IOObjectRelease(it) }
-        var names: [String] = []
+        var links: [PortLink] = []
+        let thunderbolt = thunderboltDevices()
         while case let s = IOIteratorNext(it), s != 0 {
             defer { IOObjectRelease(s) }
             func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(s, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
-            guard prop("PortTypeDescription") as? String == "USB-C", prop("ConnectionActive") as? Bool == true else { continue }
+            guard let type = prop("PortTypeDescription") as? String, type == "USB-C" || type.hasPrefix("MagSafe"),
+                  prop("ConnectionActive") as? Bool == true else { continue }
             // The USB transport under the port carries the data device's product name.
             let product = IORegistryEntrySearchCFProperty(s, kIOServicePlane, "Product" as CFString, kCFAllocatorDefault,
                                                           IOOptionBits(kIORegistryIterateRecursively)) as? String
-            if let name = usbDeviceName(sop: prop("SOPMfgString") as? String, product: product,
-                                        transports: prop("TransportsActive") as? [String] ?? []) {
-                names.append(name)
+            let supply = powerIn(s)
+            let tb = (prop("PortNumber") as? Int).flatMap { thunderbolt[$0] }
+            // A supply's USB and PD names are its hub and controller; a port with no PD partner reports "Macintosh".
+            let name = supply.watts != nil ? tb : tb ?? product ?? prop("SOPMfgString") as? String
+            links.append(PortLink(type: type, name: name, transports: prop("TransportsActive") as? [String] ?? [],
+                                  supplyW: supply.watts, powersMac: supply.selected, budgetW: usbBudgetW(s)))
+        }
+        return links
+    }
+
+    // A Thunderbolt socket number is the USB-C port's "PortNumber".
+    private static func thunderboltDevices() -> [Int: String] {
+        var out: [Int: String] = [:]
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOThunderboltSwitch"), &it) == KERN_SUCCESS else { return out }
+        defer { IOObjectRelease(it) }
+        while case let s = IOIteratorNext(it), s != 0 {
+            defer { IOObjectRelease(s) }
+            func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(s, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+            let socket = IORegistryEntrySearchCFProperty(s, kIOServicePlane, "Socket ID" as CFString, kCFAllocatorDefault,
+                                                         IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)) as? String
+            guard prop("Depth") as? Int == 1, let model = prop("Device Model Name") as? String, let n = socket.flatMap({ Int($0) }) else { continue }
+            out[n] = deviceName(vendor: prop("Device Vendor Name") as? String, model: model)
+        }
+        return out
+    }
+
+    // The bus power macOS reserves for the port's USB device, at 5 V: a ceiling, not a reading.
+    private static func usbBudgetW(_ port: io_service_t) -> Double? {
+        var meta: [String: Any]?
+        forEachChild(port) { transport, name in
+            guard meta == nil, name == "USB3" || name == "USB2",
+                  let m = IORegistryEntryCreateCFProperty(transport, "Metadata" as CFString, kCFAllocatorDefault, 0)?
+                      .takeRetainedValue() as? [String: Any], m["Vendor ID"] != nil else { return }
+            meta = m
+        }
+        guard let vendor = meta?["Vendor ID"] as? Int, let product = meta?["Product ID"] as? Int else { return nil }
+        let match = IOServiceMatching("IOUSBHostDevice") as NSMutableDictionary
+        match["idVendor"] = vendor
+        match["idProduct"] = product
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, match, &it) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(it) }
+        var mA: Int?
+        while case let d = IOIteratorNext(it), d != 0 {
+            defer { IOObjectRelease(d) }
+            func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(d, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+            guard let a = prop("UsbPowerSinkAllocation") as? Int else { continue }
+            if mA == nil || prop("USB Serial Number") as? String == meta?["Serial Number"] as? String { mA = a }
+        }
+        return mA.map { Double($0) * 5 / 1000 }
+    }
+
+    // Power sources the partner offers sit under the port's "Power In"; only the one the Mac uses has a winning option.
+    private static func powerIn(_ port: io_service_t) -> (watts: Int?, selected: Bool) {
+        var watts: Int?, selected = false
+        forEachChild(port) { feature, name in
+            guard name == "Power In" else { return }
+            forEachChild(feature) { source, _ in
+                func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(source, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+                if prop("WinningPowerSourceOption") != nil { selected = true }
+                // The options come as a set, not an array.
+                let options = (prop("PowerSourceOptions") as? NSSet)?.allObjects as? [[String: Any]] ?? []
+                for mW in options.compactMap({ $0["Max Power (mW)"] as? Int }) { watts = max(watts ?? 0, mW / 1000) }
             }
         }
-        return names
+        return (watts, selected)
+    }
+
+    private static func forEachChild(_ entry: io_registry_entry_t, _ body: (io_registry_entry_t, String) -> Void) {
+        var it: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(entry, kIOServicePlane, &it) == KERN_SUCCESS else { return }
+        defer { IOObjectRelease(it) }
+        while case let c = IOIteratorNext(it), c != 0 {
+            defer { IOObjectRelease(c) }
+            var name = [CChar](repeating: 0, count: 128)
+            IORegistryEntryGetName(c, &name)
+            body(c, String(cString: name))
+        }
     }
 
     static func gpuUtilization() -> Double? {
@@ -735,7 +810,7 @@ final class Monitor: ObservableObject {
     @Published var swap: (used: Double, total: Double) = (0, 0)
     @Published var disk: (free: Double, total: Double)?
     @Published var battery: SystemInfo.Battery?
-    @Published var usbDevices: [String] = []
+    @Published var ports: [PortLink] = []
     @Published var fans: [SMCReader.Fan] = []
     @Published var palmRest: [Double] = []
     @Published var thermal = ProcessInfo.processInfo.thermalState
@@ -789,7 +864,7 @@ final class Monitor: ObservableObject {
         let memUsed: Double
         let swap: (used: Double, total: Double)
         let battery: SystemInfo.Battery?
-        let usbDevices: [String]
+        let ports: [PortLink]
         let fans: [SMCReader.Fan]
         let palmRest: [Double]
         let disk: (free: Double, total: Double)?
@@ -989,7 +1064,7 @@ final class Monitor: ObservableObject {
                                 gpuCores: smc.temperatures(coreKeys.gpu).map(\.value),
                                 gpu: SystemInfo.gpuUtilization(), gpuWatts: gpuPower.watts(), memUsed: SystemInfo.memoryUsed(),
                                 swap: SystemInfo.swap(), battery: SystemInfo.battery(systemW: power.system, adapterW: power.adapter),
-                                usbDevices: SystemInfo.usbDevices(), fans: smc.fans(), palmRest: smc.palmRest(), disk: readDisk ? SystemInfo.disk() : nil)
+                                ports: SystemInfo.ports(), fans: smc.fans(), palmRest: smc.palmRest(), disk: readDisk ? SystemInfo.disk() : nil)
             Task { @MainActor in self?.publish(snap) }
         }
     }
@@ -1012,7 +1087,7 @@ final class Monitor: ObservableObject {
         memUsed = s.memUsed
         swap = s.swap
         battery = s.battery
-        if usbDevices != s.usbDevices { usbDevices = s.usbDevices }
+        if ports != s.ports { ports = s.ports }
         fans = s.fans
         if !fanBusy, fanTarget == s.fans.contains(where: \.manual) { fanTarget = nil }
         palmRest = s.palmRest
@@ -1407,6 +1482,25 @@ struct PowerRow: View {
                 .gridCellColumns(2)
         }
     }
+}
+
+func deviceText(_ d: (name: String, budgetW: Double?)) -> String {
+    d.budgetW.map { String(format: tr("%@ (до %@)"), d.name, w($0)) } ?? d.name
+}
+
+func supplyText(_ p: (active: PowerVia, name: String?, idle: [(via: PowerVia, watts: Int?)])) -> String {
+    func via(_ v: PowerVia) -> String {
+        if v == .dock, let n = p.name { return String(format: tr("через док-станцию %@"), n) }
+        switch v { case .magSafe: return tr("через MagSafe"); case .charger: return tr("через зарядку USB-C"); case .dock: return tr("через док-станцию") }
+    }
+    func name(_ v: PowerVia) -> String {
+        switch v { case .magSafe: "MagSafe"; case .charger: tr("Зарядка USB-C"); case .dock: tr("Док-станция") }
+    }
+    let idle = p.idle.map { s in
+        s.watts.map { String(format: tr("%@ до %ld Вт не используется."), name(s.via), $0) }
+            ?? String(format: tr("%@ не используется."), name(s.via))
+    }
+    return ([String(format: tr("Питание: %@."), via(p.active))] + idle).joined(separator: " ")
 }
 
 func adapterStatus(_ b: SystemInfo.Battery) -> (String, String, Color) {

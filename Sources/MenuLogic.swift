@@ -154,3 +154,23 @@ func splitWatts(_ total: Double, weights: [(pid: Int32, weight: Double)], fixed:
     }
     return out
 }
+
+// CPU tools report 100% per logical core; the UI uses 100% for the whole CPU.
+func machineCPUPercent(_ corePercent: Double, cores: Int) -> Double {
+    guard corePercent.isFinite else { return 0 }
+    return max(0, corePercent) / Double(max(cores, 1))
+}
+
+// A fresh interval is required: a lifetime average is not a current reading.
+func intervalCPU(previous: Double?, current: Double, seconds: Double) -> Double? {
+    guard let previous, previous.isFinite, current.isFinite, seconds.isFinite,
+          seconds > 0, current >= previous else { return nil }
+    return (current - previous) / seconds * 100
+}
+
+func percentText(_ value: Double) -> String {
+    guard value.isFinite, value >= 0 else { return "—" }
+    if value == 0 { return "0%" }
+    if value < 0.1 { return "<0.1%" }
+    return String(format: value < 10 ? "%.1f%%" : "%.0f%%", value)
+}

@@ -96,6 +96,18 @@ check(deviceName(vendor: "Ugreen Group Limited", model: "Thunderbolt 4 Docking S
 check(deviceName(vendor: "CalDigit, Inc.", model: "CalDigit TS4") == "CalDigit TS4", "brand already in model")
 check(deviceName(vendor: nil, model: "TS4") == "TS4", "no vendor")
 
+// Percentages use the whole CPU, keep small loads visible, and require fresh deltas.
+check(machineCPUPercent(42, cores: 12) == 3.5, "42% of one core is 3.5% of a 12-core CPU")
+check(machineCPUPercent(1200, cores: 12) == 100, "all cores fully busy")
+check(machineCPUPercent(100, cores: 0) == 100, "invalid core count has safe fallback")
+check(percentText(0) == "0%", "zero is zero, not less than 0.1")
+check(percentText(0.04) == "<0.1%", "tiny positive load stays visible")
+check(percentText(3.5) == "3.5%", "small load retains precision")
+check(percentText(.nan) == "—", "invalid reading is unavailable")
+check(intervalCPU(previous: nil, current: 999, seconds: 5) == nil, "first reading has no current CPU")
+check(intervalCPU(previous: 100, current: 102.1, seconds: 5).map { abs($0 - 42) < 0.0001 } == true, "CPU delta over interval")
+check(intervalCPU(previous: 100, current: 2, seconds: 5) == nil, "reset counter is unavailable")
+check(intervalCPU(previous: 1, current: 2, seconds: 0) == nil, "zero interval is unavailable")
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

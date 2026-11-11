@@ -709,7 +709,7 @@ struct Row: Identifiable {
     var memMB: Double
     var pids: [Int32]
     // Share of all cores, like Windows Task Manager.
-    var cpuShare: Double { cpu / Double(max(SystemInfo.cores, 1)) }
+    var cpuShare: Double { machineCPUPercent(cpu, cores: SystemInfo.cores) }
     // Watts, not percent: a busy-time share at low clocks says little about heat.
     var heat: Double { cpuW + gpuW }
     var count: Int { pids.count }
@@ -797,6 +797,8 @@ final class Monitor: ObservableObject {
     @Published private(set) var heatCeiling = Monitor.measuredCeiling ?? max(UserDefaults.standard.double(forKey: "heatCeiling"), 30)
     // Watts of every listed process: 100% heat when shares are taken of the total.
     @Published private(set) var heatTotal = 0.0
+    @Published private(set) var sampledCPU = 0.0
+    @Published private(set) var sampledRows = 0
     nonisolated static let measuredCeiling = maxWattsByChip[chipName()]
     var heatBase: HeatBase {
         (HeatBase(rawValue: UserDefaults.standard.string(forKey: Pref.heatBase) ?? "") ?? .auto).resolved(measured: Self.measuredCeiling != nil)
@@ -1139,6 +1141,8 @@ final class Monitor: ObservableObject {
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) { rows = Array(r.prefix(40)) }
+        sampledCPU = r.reduce(0) { $0 + $1.cpuShare }
+        sampledRows = r.count
         let total = r.reduce(0) { $0 + $1.heat }
         heatTotal = total
         if Self.measuredCeiling == nil, total > heatCeiling {
@@ -1153,7 +1157,7 @@ final class Monitor: ObservableObject {
     var heatCaption: String {
         let watts = String(format: "%.0f", heatCeiling)
         switch heatBase {
-        case .total: return tr("нагрев = доля в общей нагрузке CPU и GPU; ≈ — оценка")
+        case .total: return tr("нагрев — доля учтённой энергии CPU и GPU, не загрузка CPU; ≈ — оценка")
         case _ where Self.measuredCeiling == nil:
             return String(format: tr("нагрев = доля от наибольшей замеченной нагрузки (%@ Вт); ≈ — оценка"), watts)
         default: return String(format: tr("нагрев = доля от максимума CPU и GPU (%@ Вт); ≈ — оценка"), watts)
@@ -1211,7 +1215,7 @@ func w(_ v: Double?) -> String { v.map { String(format: tr("%.1f Вт"), $0) } ?
 // Processes mostly draw well under a watt, so those get two decimals.
 func wFine(_ v: Double) -> String { String(format: tr(v < 1 ? "%.2f Вт" : "%.1f Вт"), v) }
 // Most processes sit well under 1% of full load, so small shares keep a decimal.
-func pct(_ v: Double) -> String { v < 0.1 ? "<0.1%" : String(format: v < 10 ? "%.1f%%" : "%.0f%%", v) }
+func pct(_ v: Double) -> String { percentText(v) }
 func tr(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 func ofGB(_ used: Double, _ total: Double) -> String { String(format: tr("%@ из %@ ГБ"), gb(used), gbTotal(total)) }
 
@@ -1383,7 +1387,7 @@ struct Header: View {
                     }
                     GridRow {
                         SectionTitle("Нагрузка")
-                        Stat(title: "CPU · \(SystemInfo.cores) ядер", value: String(format: "%.0f%%", m.cpuUsage))
+                        Stat(title: "CPU · \(SystemInfo.cores) ядер", value: pct(m.cpuUsage) + " · " + String(format: tr("≈%.1f ядра"), m.cpuUsage / 100 * Double(SystemInfo.cores)))
                         Stat(title: "GPU", value: gpuText)
                             .help("Доля времени, когда GPU занят. На низкой частоте лёгкая работа даёт десятки процентов; реальную нагрузку показывают ватты")
                         Stat(title: "Память", value: ofGB(m.memUsed, SystemInfo.totalRAM))
@@ -1544,7 +1548,10 @@ struct HeatBar: View {
                     .frame(width: 50 * min(max(share, 0), 1))
             }
             .frame(width: 50, height: 6)
-            Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
+            VStack(alignment: .trailing, spacing: 1) {
+                Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
+                Text((estimated ? "≈" : "") + wFine(watts)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
         }
         .help(wFine(watts) + " · " + tr(estimated ? "Оценка по времени CPU: macOS считает энергию на всё приложение, здесь она поделена между его процессами"
               : "Энергия CPU по учёту macOS плюс доля энергии GPU"))
@@ -1573,7 +1580,6 @@ struct ProcessTable: View {
     @Binding var columns: TableColumnCustomization<Row>
 
     var body: some View {
-        let maxHeat = max(m.rows.map(\.heat).max() ?? 0, 0.5)
         Table(m.rows, selection: $selection, sortOrder: $m.sortOrder, columnCustomization: $columns) {
             TableColumn("Процесс", value: \.name) { row in
                 HStack(spacing: 6) {
@@ -1591,23 +1597,29 @@ struct ProcessTable: View {
             .customizationID("name")
             .disabledCustomizationBehavior(.visibility)
             TableColumn("Нагрев", value: \.heat) { row in
-                HeatBar(percent: m.heatShare(row), watts: row.heat, share: row.heat / maxHeat, estimated: row.estimated)
+                HeatBar(percent: m.heatShare(row), watts: row.heat, share: m.heatShare(row) / 100, estimated: row.estimated)
             }
-            .width(110)
+            .width(145)
             .customizationID("heat")
-            TableColumn(String(format: "CPU %.0f%%", m.cpuUsage), value: \.cpuShare) { row in
-                Text(String(format: "%.1f%%", row.cpuShare)).monospacedDigit().frame(maxWidth: .infinity, alignment: .trailing)
+            TableColumn("CPU", value: \.cpuShare) { row in
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(pct(row.cpuShare)).monospacedDigit()
+                    Text(String(format: tr("≈%.1f ядра"), row.cpu / 100)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .help(tr("CPU: 100% — весь процессор, а не одно ядро.") + " " + String(format: tr("По шкале одного ядра: %.1f%%."), row.cpu))
             }
-            .width(80)
+            .width(100)
             .customizationID("cpu")
-            TableColumn(m.gpu.map { String(format: "GPU %.0f%%", $0) } ?? "GPU", value: \.gpu) { row in
-                Text(row.gpu < 0.05 ? "—" : String(format: "%.1f%%", row.gpu)).monospacedDigit()
+            TableColumn("Время GPU", value: \.gpu) { row in
+                Text(pct(row.gpu)).monospacedDigit()
+                    .help(tr("Время GPU за интервал. Это не доля общей мощности GPU; значения процессов могут суммироваться выше 100%."))
                     .foregroundStyle(row.gpu < 0.05 ? .secondary : .primary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .width(80)
             .customizationID("gpu")
-            TableColumn("Память \(gb(m.memUsed)) ГБ", value: \.memMB) { row in
+            TableColumn("Память", value: \.memMB) { row in
                 Text(row.memMB >= 1024 ? String(format: tr("%.1f ГБ"), row.memMB / 1024) : String(format: tr("%.0f МБ"), row.memMB))
                     .monospacedDigit().frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -1834,6 +1846,15 @@ struct ContentView: View {
                 SensorsButton()
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
+            HStack {
+                Text(String(format: tr("CPU всего: %@ · в показанных строках: %@ · во всей выборке: %@"),
+                            pct(m.cpuUsage), pct(m.rows.reduce(0) { $0 + $1.cpuShare }), pct(m.sampledCPU)))
+                Spacer()
+                Text(String(format: tr("Строк: %ld из %ld"), m.rows.count, m.sampledRows))
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, 16).padding(.bottom, 6)
+            .help(tr("Общий CPU включает все процессы. Список ограничен 120 процессами и 40 строками; доли округлены, показания разных источников могут немного расходиться. Нажмите CPU, чтобы сортировать по загрузке процессора."))
             ProcessTable(m: m, selection: $selection, columns: $columns)
                 .overlay {
                     if m.rows.isEmpty {

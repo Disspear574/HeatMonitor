@@ -790,37 +790,38 @@ enum Identity {
 // MARK: - Model
 
 @MainActor
-final class Monitor: ObservableObject {
-    @Published var rows: [Row] = []
-    @Published var hottest: Set<String> = []
+@Observable
+final class Monitor {
+    var rows: [Row] = []
+    var hottest: Set<String> = []
     // CPU + GPU watts at full load: 100% heat. Known chips use a measured value, others the highest total seen.
-    @Published private(set) var heatCeiling = Monitor.measuredCeiling ?? max(UserDefaults.standard.double(forKey: "heatCeiling"), 30)
+    private(set) var heatCeiling = Monitor.measuredCeiling ?? max(UserDefaults.standard.double(forKey: "heatCeiling"), 30)
     // Watts of every listed process: 100% heat when shares are taken of the total.
-    @Published private(set) var heatTotal = 0.0
-    @Published private(set) var sampledCPU = 0.0
-    @Published private(set) var sampledRows = 0
+    private(set) var heatTotal = 0.0
+    private(set) var sampledCPU = 0.0
+    private(set) var sampledRows = 0
     nonisolated static let measuredCeiling = maxWattsByChip[chipName()]
     var heatBase: HeatBase {
         (HeatBase(rawValue: UserDefaults.standard.string(forKey: Pref.heatBase) ?? "") ?? .auto).resolved(measured: Self.measuredCeiling != nil)
     }
-    @Published var sensors: [String: Double] = [:]
-    @Published var history: [Double] = []
-    @Published var cpuUsage: Double = 0
-    @Published var gpu: Double?
-    @Published var gpuWatts: Double?
-    @Published var memUsed: Double = 0
-    @Published var swap: (used: Double, total: Double) = (0, 0)
-    @Published var disk: (free: Double, total: Double)?
-    @Published var battery: SystemInfo.Battery?
-    @Published var ports: [PortLink] = []
-    @Published var fans: [SMCReader.Fan] = []
-    @Published var palmRest: [Double] = []
-    @Published var thermal = ProcessInfo.processInfo.thermalState
-    @Published var message: String?
-    @Published var fanBusy = false
-    @Published var fanTarget: Bool?
-    @Published var grouped = true { didSet { rebuild() } }
-    @Published var sortOrder = [KeyPathComparator(\Row.heat, order: .reverse)] { didSet { rebuild() } }
+    var sensors: [String: Double] = [:]
+    var history: [Double] = []
+    var cpuUsage: Double = 0
+    var gpu: Double?
+    var gpuWatts: Double?
+    var memUsed: Double = 0
+    var swap: (used: Double, total: Double) = (0, 0)
+    var disk: (free: Double, total: Double)?
+    var battery: SystemInfo.Battery?
+    var ports: [PortLink] = []
+    var fans: [SMCReader.Fan] = []
+    var palmRest: [Double] = []
+    var thermal = ProcessInfo.processInfo.thermalState
+    var message: String?
+    var fanBusy = false
+    var fanTarget: Bool?
+    var grouped = true { didSet { rebuild() } }
+    var sortOrder = [KeyPathComparator(\Row.heat, order: .reverse)] { didSet { rebuild() } }
 
     private var lastProcs: [TopSample.Proc] = []
     private var power = ProcPower()
@@ -873,9 +874,9 @@ final class Monitor: ObservableObject {
     }
 
     // M2 and later name CPU die sensors "PMU tdie*"; M1 uses "*ACC MTR Temp Sensor*".
-    @Published var cpuCores: [Double] = []
-    @Published var perCore: [Double] = []
-    @Published var gpuCores: [Double] = []
+    var cpuCores: [Double] = []
+    var perCore: [Double] = []
+    var gpuCores: [Double] = []
 
     // SMC core sensors are the real hot spots: under load they read ~110° where HID "PMU tdie" reads ~65°.
     var cpuSensors: [Double] {
@@ -894,10 +895,10 @@ final class Monitor: ObservableObject {
     var gpuTemp: Double? { gpuCores.max() }
 
     // Core sensors jump 20°+ within a second on short bursts, so the header shows a 5-second mean.
-    @Published var cpuHot: Double?
-    @Published var cpuPeak: Double?
-    @Published var cpuMean: Double?
-    @Published var gpuHot: Double?
+    var cpuHot: Double?
+    var cpuPeak: Double?
+    var cpuMean: Double?
+    var gpuHot: Double?
     private var window: [String: [Double]] = [:]
 
     private func smooth(_ key: String, _ v: Double?) -> Double? {
@@ -950,7 +951,8 @@ final class Monitor: ObservableObject {
 
     func refreshNow() { refreshSystem() }
 
-    @Published var readings = Readings()
+    var readings = Readings() { didSet { onReadings?(readings) } }
+    @ObservationIgnored var onReadings: ((Readings) -> Void)?
     private var lightTimer: Timer?
     private let cpuLoad = CPULoad()
 
@@ -1351,7 +1353,7 @@ struct Stat: View {
 }
 
 struct Header: View {
-    @ObservedObject var m: Monitor
+    var m: Monitor
     var body: some View {
         let (stateText, stateColor) = thermalText(m.thermal)
         VStack(alignment: .leading, spacing: 12) {
@@ -1430,7 +1432,7 @@ struct Header: View {
 
 /// Auto or maximum fans; the state comes from the SMC, so another fan app's manual mode shows too.
 struct FanSwitch: View {
-    @ObservedObject var m: Monitor
+    var m: Monitor
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Режим").font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -1560,7 +1562,7 @@ struct HeatBar: View {
 
 /// Shares of the Mac's maximum or of the current total; the choice is shared with Settings.
 struct HeatBasePicker: View {
-    @ObservedObject var m: Monitor
+    var m: Monitor
     @AppStorage(Pref.heatBase) private var raw = HeatBase.auto.rawValue
     var body: some View {
         Picker("Нагрев", selection: Binding(get: { m.heatBase }, set: { raw = $0.rawValue })) {
@@ -1573,7 +1575,7 @@ struct HeatBasePicker: View {
 }
 
 struct ProcessTable: View {
-    @ObservedObject var m: Monitor
+    @Bindable var m: Monitor
     // Redraws the table at once when the heat base changes here or in Settings.
     @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
     @Binding var selection: Set<Row.ID>
@@ -1640,7 +1642,7 @@ struct ProcessTable: View {
 }
 
 struct ActionBar: View {
-    @ObservedObject var m: Monitor
+    var m: Monitor
     let selected: Row?
     var body: some View {
         HStack(spacing: 10) {
@@ -1785,8 +1787,7 @@ struct SensorsView: View {
             .overlay { if model.loading { ProgressView("Читаю датчики…").controlSize(.small) } }
         }
         .frame(minWidth: 420, minHeight: 500)
-        .onAppear { model.start() }
-        .onDisappear { model.stop() }
+        .whileOnScreen(start: model.start, stop: model.stop)
     }
 
     private func row(_ item: SensorsModel.Item) -> some View {
@@ -1806,7 +1807,7 @@ struct SensorsButton: View {
 }
 
 struct ContentView: View {
-    @ObservedObject var m: Monitor
+    @Bindable var m: Monitor
     @State private var selection = Set<Row.ID>()
     @AppStorage("columns") private var storedColumns = Data()
     @State private var columns: TableColumnCustomization<Row> = {
@@ -1863,6 +1864,79 @@ struct ContentView: View {
                 }
             Divider()
             ActionBar(m: m, selected: selected)
+        }
+    }
+}
+
+extension View {
+    func whileOnScreen(start: @escaping @MainActor () -> Void, stop: @escaping @MainActor () -> Void) -> some View {
+        modifier(WhileOnScreen(start: start, stop: stop))
+    }
+}
+
+/// Keeps a view's polling running only while it is shown in a window that is on screen.
+private struct WhileOnScreen: ViewModifier {
+    let start: @MainActor () -> Void
+    let stop: @MainActor () -> Void
+    @State private var appeared = false
+    @State private var onScreen = true
+
+    func body(content: Content) -> some View {
+        content
+            .background(OnScreenReader { onScreen = $0 })
+            .onAppear { appeared = true }
+            .onDisappear { appeared = false }
+            .onChange(of: appeared && onScreen) { _, run in run ? start() : stop() }
+    }
+}
+
+/// Reports whether its window is on screen; like the main window, it must stay visible a second before that counts.
+private struct OnScreenReader: NSViewRepresentable {
+    let report: @MainActor (Bool) -> Void
+
+    func makeNSView(context: Context) -> Probe {
+        let p = Probe()
+        p.report = report
+        return p
+    }
+
+    func updateNSView(_ p: Probe, context: Context) { p.report = report }
+
+    /// An empty view that watches its window's occlusion and key state.
+    final class Probe: NSView {
+        var report: (@MainActor (Bool) -> Void)?
+        private var tokens: [NSObjectProtocol] = []
+        private var settle: Timer?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            tokens.forEach(NotificationCenter.default.removeObserver)
+            tokens = []
+            settle?.invalidate()
+            settle = nil
+            guard let w = window else { return }
+            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification] {
+                tokens.append(NotificationCenter.default.addObserver(forName: name, object: w, queue: .main) { [weak self] n in
+                    let key = n.name == NSWindow.didBecomeKeyNotification
+                    MainActor.assumeIsolated { self?.changed(key: key) }
+                })
+            }
+        }
+
+        private func changed(key: Bool) {
+            settle?.invalidate()
+            settle = nil
+            guard let w = window else { return }
+            // Occlusion can misreport with Stage Manager or several displays; a key window is on screen.
+            if key { report?(true); return }
+            guard w.occlusionState.contains(.visible) else { report?(false); return }
+            settle = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.window?.occlusionState.contains(.visible) == true else { return }
+                    self.settle = nil
+                    self.report?(true)
+                }
+            }
         }
     }
 }

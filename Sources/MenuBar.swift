@@ -26,7 +26,8 @@ final class StatusController: NSObject, NSPopoverDelegate {
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
             b.imagePosition = .imageLeading
         }
-        monitor.$readings.sink { [weak self] r in self?.refreshLabel(r) }.store(in: &bag)
+        monitor.onReadings = { [weak self] r in self?.refreshLabel(r) }
+        refreshLabel(monitor.readings)
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self.map { $0.refreshLabel($0.monitor.readings) } } }
@@ -89,7 +90,7 @@ final class StatusController: NSObject, NSPopoverDelegate {
 
 /// The compact panel in the menu bar popover; blocks follow the Panel settings.
 struct MenuPanel: View {
-    @ObservedObject var m: Monitor
+    var m: Monitor
     let close: () -> Void
     @AppStorage(Pref.panelBlocks) private var blocksRaw = encodeSet(Set(PanelBlock.allCases))
     // Redraws the app list at once when the heat base changes.

@@ -70,6 +70,9 @@ final class AdviceModel: ObservableObject {
     @Published private(set) var hasCPUSample = false
     private var timer: Timer?
     private let io = DispatchQueue(label: "advice", qos: .utility)
+    private var shields: [Int32: Int] = [:]
+    private var shieldsDisplays = -1
+    private var shieldsRead = -Double.infinity
 
     private static let devPatterns: [(id: String, title: String, match: (ProcInfo) -> Bool)] = [
         ("simulator", "Симуляторы iOS", { $0.path.contains("/CoreSimulator/Devices/") || $0.path.hasSuffix("/launchd_sim") }),
@@ -100,15 +103,20 @@ final class AdviceModel: ObservableObject {
     func stop() { timer?.invalidate(); timer = nil }
 
     func refresh() {
+        // Listing every window costs WindowServer time; shields only change when displays come and go.
+        let displays = Self.onlineDisplays()
+        let uptime = ProcessInfo.processInfo.systemUptime
+        let rescan = displays != shieldsDisplays || uptime - shieldsRead >= 60
+        if rescan { shieldsDisplays = displays; shieldsRead = uptime }
         io.async { [weak self] in
             let procs = ProcSnapshot.read()
-            let shieldsByOwner = Self.offscreenShields()
-            let displays = Self.onlineDisplays()
+            let shieldsByOwner = rescan ? Self.offscreenShields() : nil
             Task { @MainActor in self?.apply(procs, shieldsByOwner: shieldsByOwner, displays: displays) }
         }
     }
 
-    private func apply(_ raw: [ProcInfo], shieldsByOwner: [Int32: Int], displays: Int) {
+    private func apply(_ raw: [ProcInfo], shieldsByOwner: [Int32: Int]?, displays: Int) {
+        if let shieldsByOwner { shields = shieldsByOwner }
         let now = ProcessInfo.processInfo.systemUptime
         let dt = now - lastRead
         lastRead = now
@@ -125,7 +133,7 @@ final class AdviceModel: ObservableObject {
         let ws = procs.first(where: { $0.path.hasSuffix("/WindowServer") || $0.args.hasPrefix("/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer") })
         let windowServerPid = ws?.pid
         if let ws {
-            windowServer = WindowServer(cpu: ws.cpu, uptime: ws.elapsed, shields: shieldsByOwner[ws.pid] ?? 0, displays: displays)
+            windowServer = WindowServer(cpu: ws.cpu, uptime: ws.elapsed, shields: shields[ws.pid] ?? 0, displays: displays)
         }
 
         var devPids = Set<Int32>()
@@ -230,8 +238,7 @@ struct AdviceView: View {
             .font(.callout)
             .padding(.horizontal, 16).padding(.vertical, 8)
         }
-        .onAppear { model.start() }
-        .onDisappear { model.stop() }
+        .whileOnScreen(start: model.start, stop: model.stop)
         .alert("Остановить всё найденное?", isPresented: $confirmStopAll) {
             Button("Остановить", role: .destructive) { model.stopAll() }
             Button("Отмена", role: .cancel) {}

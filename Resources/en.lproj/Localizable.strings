@@ -258,3 +258,19 @@
 "HeatMonitor меняет режим энергопотребления от адаптера." = "HeatMonitor is changing the energy mode on the adapter.";
 "Не удалось сменить режим." = "Could not change the mode.";
 /* end Energy mode */
+
+/* Limiter */
+"Ограничитель" = "Limiter";
+"Ограничивать процессы из списка" = "Limit listed processes";
+"Когда не хватает питания от адаптера" = "When the adapter falls short";
+"Когда CPU горячее %.0f°" = "When the CPU is hotter than %.0f°";
+"Порог температуры: %.0f°" = "Temperature threshold: %.0f°";
+"Ждать перед включением и снятием: %.0f мин" = "Wait before engaging and releasing: %.0f min";
+"Процессы, в команде которых есть строка из списка (по одной на строку), переводятся в фоновый приоритет: медленнее, но не останавливаются. Только ваши процессы. После снятия нагрузки приоритет возвращается." = "Processes whose command contains a line from the list (one per line) move to background priority: slower, never stopped. Only your processes. Priority returns once the load is gone.";
+"Ограничитель снят" = "Limiter released";
+"Процессы из списка вернулись к обычному приоритету." = "Listed processes are back at normal priority.";
+"Питания не хватает — ограничитель включён" = "Power falls short — limiter on";
+"Mac перегрет — ограничитель включён" = "Mac is hot — limiter on";
+"Процессов в фоновом приоритете: %ld." = "Processes at background priority: %ld.";
+"Режим энергосбережения от адаптера включается в разделе «Питание»." = "Low Power on the adapter is in the Power section.";
+/* end Limiter */

@@ -971,6 +971,16 @@ final class Monitor {
         }
     }
 
+    func limiterSample(_ done: @escaping @MainActor (Double?, SystemInfo.Battery?) -> Void) {
+        io.async { [smc, temps, coreKeys] in
+            Self.findCoreKeys(smc, coreKeys)
+            let t = smc.temperatures(coreKeys.cpu ?? []).map(\.value).max() ?? hidCPU(temps.read())
+            let p = smc.power()
+            let b = SystemInfo.battery(systemW: p.system, adapterW: p.adapter)
+            Task { @MainActor in done(t, b) }
+        }
+    }
+
     // While it exists, the root watcher from "max" keeps fans at max; deleting it hands them back with no password.
     private let fanFlag = FileManager.default.temporaryDirectory.appendingPathComponent("heatmonitor-fans-max").path
 
@@ -1660,20 +1670,22 @@ final class Windows {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let monitor = Monitor()
+    private lazy var limiter = Limiter(monitor: monitor)
     private var demand = Demand()
     private var stopTimer: Timer?
     private var status: StatusController?
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        UserDefaults.standard.register(defaults: Pref.defaults)
+        UserDefaults.standard.register(defaults: Pref.defaults.merging(Limiter.registeredDefaults) { a, _ in a })
         applyDockPolicy()
         monitor.watchPowerSource()
         Windows.shared.onMainVisible = { [weak self] visible in self?.update { $0.set(window: visible, now: $1) } }
         status = StatusController(monitor: monitor) { [weak self] open in self?.update { $0.set(panel: open, now: $1) } }
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.update { _, _ in } }
+            MainActor.assumeIsolated { self?.update { _, _ in }; self?.limiter.sync() }
         }
         update { _, _ in }
+        limiter.sync()
     }
 
     // Finder or the Dock icon shows the window; turning the Dock icon on also sends a reopen, with Settings visible.
@@ -1682,7 +1694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    func applicationWillTerminate(_ n: Notification) { monitor.stop() }
+    func applicationWillTerminate(_ n: Notification) { monitor.stop(); limiter.stop() }
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
 
     // Full polling while the panel or window is open and 60 s after; the light label timer only when it is off.

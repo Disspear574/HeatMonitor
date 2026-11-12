@@ -147,6 +147,7 @@ check(WindowSection.allCases.map(\.shortcut) == ["1", "2", "3", "4", "5"], "sect
 check(WindowSection.cooling.titleKey == "Охлаждение", "section title key")
 
 powerAdviceTests()
+limiterTests()
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

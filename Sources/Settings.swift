@@ -8,6 +8,12 @@ struct SettingsView: View {
     @AppStorage(Pref.labelValues) private var valuesRaw = MenuValue.cpuTemp.rawValue
     @AppStorage(Pref.panelBlocks) private var blocksRaw = encodeSet(Set(PanelBlock.allCases))
     @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
+    @AppStorage(LimiterPref.enabled) private var limiterOn = false
+    @AppStorage(LimiterPref.power) private var limitPower = true
+    @AppStorage(LimiterPref.heat) private var limitHeat = true
+    @AppStorage(LimiterPref.heatC) private var limitHeatC = 95.0
+    @AppStorage(LimiterPref.holdMin) private var limitHoldMin = 3.0
+    @AppStorage(LimiterPref.patterns) private var limitPatternsText = LimiterPref.defaultPatterns
 
     var body: some View {
         Form {
@@ -48,6 +54,23 @@ struct SettingsView: View {
             }
             Section("Панель") {
                 ForEach(PanelBlock.allCases, id: \.self) { b in Toggle(title(b), isOn: member(b, in: $blocksRaw)) }
+            }
+            Section {
+                Toggle("Ограничивать процессы из списка", isOn: $limiterOn)
+                Toggle("Когда не хватает питания от адаптера", isOn: $limitPower).disabled(!limiterOn)
+                Toggle(String(format: tr("Когда CPU горячее %.0f°"), limitHeatC), isOn: $limitHeat).disabled(!limiterOn)
+                Stepper(String(format: tr("Порог температуры: %.0f°"), limitHeatC), value: $limitHeatC, in: 80...105, step: 5)
+                    .disabled(!limiterOn || !limitHeat)
+                Stepper(String(format: tr("Ждать перед включением и снятием: %.0f мин"), limitHoldMin), value: $limitHoldMin, in: 1...15)
+                    .disabled(!limiterOn)
+                TextEditor(text: $limitPatternsText)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(height: 96)
+                    .disabled(!limiterOn)
+            } header: {
+                Text("Ограничитель")
+            } footer: {
+                Text("Процессы, в команде которых есть строка из списка (по одной на строку), переводятся в фоновый приоритет: медленнее, но не останавливаются. Только ваши процессы. После снятия нагрузки приоритет возвращается.")
             }
         }
         .formStyle(.grouped)

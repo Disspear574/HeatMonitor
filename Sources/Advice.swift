@@ -88,25 +88,43 @@ final class AdviceModel: ObservableObject {
         services.filter(\.mine).map(\.name) + dev.map { tr($0.title) }
     }
 
-    func start() {
-        guard timer == nil else { return }
-        previous = [:]
-        hasCPUSample = false
-        lastRead = ProcessInfo.processInfo.systemUptime
-        refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
-        timer?.tolerance = 1
+    private var windowOnScreen = false
+    private var adviceShown = false
+    private var interval: TimeInterval?
+
+    func setVisibility(windowOnScreen: Bool, adviceShown: Bool) {
+        self.windowOnScreen = windowOnScreen
+        self.adviceShown = adviceShown
+        reschedule()
     }
 
-    func stop() { timer?.invalidate(); timer = nil }
+    // Fast in the section and until a CPU sample exists, once a minute for the sidebar count, nothing while closed.
+    private func reschedule() {
+        let next = AdviceSchedule.interval(windowOnScreen: windowOnScreen, adviceShown: adviceShown, hasCPUSample: hasCPUSample)
+        guard next != interval else { return }
+        let was = interval
+        interval = next
+        timer?.invalidate()
+        timer = nil
+        guard let next else {
+            previous = [:]
+            hasCPUSample = false
+            return
+        }
+        if was == nil { lastRead = ProcessInfo.processInfo.systemUptime }
+        // Opening the window or the section reads at once instead of waiting a full interval.
+        if was.map({ next < $0 }) ?? true { refresh() }
+        timer = Timer.scheduledTimer(withTimeInterval: next, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        timer?.tolerance = next >= AdviceSchedule.badge ? 10 : 1
+    }
 
     func refresh() {
-        // Listing every window costs WindowServer time; shields only change when displays come and go.
+        // Listing every window costs WindowServer time; shields only change when displays come and go, and only the section shows them.
         let displays = Self.onlineDisplays()
         let uptime = ProcessInfo.processInfo.systemUptime
-        let rescan = displays != shieldsDisplays || uptime - shieldsRead >= 60
+        let rescan = adviceShown && (displays != shieldsDisplays || uptime - shieldsRead >= 60)
         if rescan { shieldsDisplays = displays; shieldsRead = uptime }
         io.async { [weak self] in
             let procs = ProcSnapshot.read()
@@ -158,6 +176,7 @@ final class AdviceModel: ObservableObject {
         }
         .sorted { $0.cpu > $1.cpu }
         .map { Service(id: $0.pid, name: $0.name, cpu: $0.cpu, average: $0.cpuTime / $0.elapsed * 100, uptime: $0.elapsed, mine: $0.uid == me) }
+        reschedule()
     }
 
     // Shield windows cover a display while it is reconfigured; offscreen ones are left from displays that are gone.
@@ -213,32 +232,29 @@ func duration(_ s: Double) -> String {
 }
 
 struct AdviceView: View {
-    @StateObject private var model = AdviceModel()
+    @ObservedObject var model: AdviceModel
     @State private var confirmStopAll = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    windowServerCard
-                    servicesCard
-                    devCard
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.gap) {
+                if let message = model.message {
+                    Text(message).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(16)
+                windowServerCard
+                servicesCard
+                devCard
+                Text("В этом разделе проверки идут каждые 5 секунд. Пока окно открыто, число находок в боковой панели обновляется раз в минуту.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            Divider()
-            HStack {
-                Text(model.message ?? tr("Проверки обновляются каждые 5 секунд, пока открыта эта вкладка."))
-                    .foregroundStyle(model.message == nil ? Color.secondary : Color.orange)
-                    .lineLimit(2)
-                Spacer()
+            .padding(Theme.edge)
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
                 Button("Остановить всё найденное", role: .destructive) { confirmStopAll = true }
                     .disabled(model.stoppable.isEmpty)
             }
-            .font(.callout)
-            .padding(.horizontal, 16).padding(.vertical, 8)
         }
-        .whileOnScreen(start: model.start, stop: model.stop)
         .alert("Остановить всё найденное?", isPresented: $confirmStopAll) {
             Button("Остановить", role: .destructive) { model.stopAll() }
             Button("Отмена", role: .cancel) {}

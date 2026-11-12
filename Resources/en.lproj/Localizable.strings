@@ -156,7 +156,6 @@
 "%ld ч %ld мин" = "%ld h %ld min";
 "%ld мин" = "%ld min";
 "%@ ГБ" = "%@ GB";
-"Проверки обновляются каждые 5 секунд, пока открыта эта вкладка." = "Checks refresh every 5 seconds while this tab is open.";
 "Остановить всё найденное" = "Stop everything found";
 "Остановить всё найденное?" = "Stop everything found?";
 "Остановить" = "Stop";
@@ -223,4 +222,5 @@
 /* end Power */
 
 /* Advice */
+"В этом разделе проверки идут каждые 5 секунд. Пока окно открыто, число находок в боковой панели обновляется раз в минуту." = "In this section the checks run every 5 seconds. While the window is open, the number of findings in the sidebar updates once a minute.";
 /* end Advice */

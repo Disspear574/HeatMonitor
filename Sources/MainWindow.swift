@@ -5,6 +5,8 @@ import SwiftUI
 struct MainView: View {
     @Bindable var m: Monitor
     @State private var section: WindowSection = .overview
+    @StateObject private var advice = AdviceModel()
+    @State private var onScreen = false
 
     var body: some View {
         NavigationSplitView {
@@ -19,6 +21,12 @@ struct MainView: View {
                 .background { shortcuts }
         }
         .frame(minWidth: 760, minHeight: 520)
+        .whileOnScreen(start: { onScreen = true; syncAdvice() }, stop: { onScreen = false; syncAdvice() })
+        .onChange(of: section) { _, _ in syncAdvice() }
+    }
+
+    private func syncAdvice() {
+        advice.setVisibility(windowOnScreen: onScreen, adviceShown: onScreen && section == .advice)
     }
 
     @ViewBuilder private var detail: some View {
@@ -27,13 +35,14 @@ struct MainView: View {
         case .processes: ProcessesView(m: m)
         case .cooling: CoolingView(m: m)
         case .power: PowerView(m: m)
-        case .advice: AdviceView()
+        case .advice: AdviceView(model: advice)
         }
     }
 
     private func value(_ s: WindowSection) -> SidebarValue? {
         switch s {
-        case .overview, .advice: return nil
+        case .overview: return nil
+        case .advice: return .badge(advice.stoppable.count)
         case .processes: return m.hottestRow.map { .text($0.name, .secondary) }
         case .cooling: return m.cpuHot.map { .text(fmt($0), tempColor($0)) }
         case .power: return m.battery?.systemW.map { .text(w($0), .secondary) }

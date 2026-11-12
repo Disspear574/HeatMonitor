@@ -3,10 +3,101 @@ import SwiftUI
 
 /// Processes section: the heat table with its toolbar and footnote.
 struct ProcessesView: View {
-    var m: Monitor
+    @Bindable var m: Monitor
+    // Redraws the footnote at once when the heat base changes here or in Settings.
+    @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
+    @State private var selection = Set<Row.ID>()
+    @AppStorage("columns") private var storedColumns = Data()
+    @State private var columns: TableColumnCustomization<Row> = {
+        var c = TableColumnCustomization<Row>()
+        c[visibility: "gpu"] = .hidden
+        return c
+    }()
 
     var body: some View {
-        Text("Процессы").frame(maxWidth: .infinity, maxHeight: .infinity)
+        let selected = selection.first.flatMap { id in m.rows.first { $0.id == id } }
+        VStack(alignment: .leading, spacing: 0) {
+            if let message = m.message {
+                Text(message).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Theme.edge).padding(.vertical, 8)
+            }
+            ProcessTable(m: m, selection: $selection, columns: $columns)
+                .environment(\.defaultMinListRowHeight, Theme.rowHeight)
+                .overlay {
+                    if m.rows.isEmpty {
+                        ProgressView("Собираю список процессов…").controlSize(.small)
+                    }
+                }
+            Text(footnote)
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Theme.edge).padding(.vertical, 10)
+        }
+        .toolbar { toolbar(selected) }
+        .onChange(of: selection) { _, _ in m.message = nil }
+        .onAppear {
+            if let saved = try? JSONDecoder().decode(TableColumnCustomization<Row>.self, from: storedColumns) { columns = saved }
+        }
+        .onChange(of: columns) { _, c in storedColumns = (try? JSONEncoder().encode(c)) ?? Data() }
+    }
+
+    @ToolbarContentBuilder private func toolbar(_ selected: Row?) -> some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            HStack(spacing: 6) {
+                if let row = selected {
+                    Image(nsImage: row.icon).resizable().frame(width: 16, height: 16)
+                    Text(row.name).lineLimit(1).truncationMode(.middle).help(row.name)
+                } else {
+                    Text("Выберите процесс").foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: 220, alignment: .trailing)
+            Button("Что это?") { if let row = selected { m.search(row) } }
+                .disabled(selected == nil)
+            Button("Завершить", role: .destructive) { if let row = selected { m.terminate(row) } }
+                .keyboardShortcut(.delete, modifiers: [])
+                .disabled(selected == nil)
+            ViewMenu(m: m, columns: $columns)
+        }
+    }
+
+    private var footnote: String {
+        let watts = String(format: "%.0f", m.heatCeiling)
+        let caption = switch m.heatBase {
+        case .total:
+            tr("Нагрев — сколько ватт процесс тратит на CPU и GPU. Процент — его доля в текущей нагрузке CPU и GPU, вместе 100%; это не загрузка CPU. Знак ≈ — оценка.")
+        case _ where Monitor.measuredCeiling == nil:
+            String(format: tr("Нагрев — сколько ватт процесс тратит на CPU и GPU. Процент — доля от наибольшей нагрузки, замеченной на этом Mac (%@ Вт). Знак ≈ — оценка."), watts)
+        default:
+            String(format: tr("Нагрев — сколько ватт процесс тратит на CPU и GPU. Процент — доля от максимума этого Mac (%@ Вт). Знак ≈ — оценка."), watts)
+        }
+        return caption + " " + tr("Показаны 40 самых горячих строк.")
+    }
+}
+
+/// Grouping, heat base and visible columns of the process table.
+struct ViewMenu: View {
+    @Bindable var m: Monitor
+    @Binding var columns: TableColumnCustomization<Row>
+    private let items = [("heat", "Нагрев"), ("cpu", "CPU"), ("gpu", "Время GPU"), ("mem", "Память")]
+
+    var body: some View {
+        Menu("Вид") {
+            Toggle("Группировать по приложениям", isOn: $m.grouped)
+            Divider()
+            HeatBasePicker(m: m)
+            Divider()
+            Section("Столбцы") {
+                ForEach(items, id: \.0) { id, title in
+                    Toggle(tr(title), isOn: Binding(
+                        get: { columns[visibility: id] != .hidden },
+                        set: { columns[visibility: id] = $0 ? .visible : .hidden }))
+                }
+            }
+        }
+        .fixedSize()
     }
 }
 
@@ -16,18 +107,15 @@ struct HeatBar: View {
     let share: Double
     let estimated: Bool
     var body: some View {
-        HStack(spacing: 6) {
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary.opacity(0.5))
-                Capsule().fill(share > 0.6 ? Color.red : share > 0.25 ? .orange : .yellow)
-                    .frame(width: 50 * min(max(share, 0), 1))
-            }
-            .frame(width: 50, height: 6)
-            VStack(alignment: .trailing, spacing: 1) {
-                Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
-                Text((estimated ? "≈" : "") + wFine(watts)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
+        let mark = estimated ? "≈" : ""
+        HStack(spacing: 8) {
+            LevelBar(fraction: max(share, 0.03), color: (share > 0.6 ? TempLevel.crit : share > 0.25 ? .hot : .warm).fill)
+                .frame(width: 50)
+            Text(mark + pct(percent)).monospacedDigit().frame(minWidth: 46, alignment: .trailing)
+            Text(mark + wFine(watts)).foregroundStyle(.secondary).monospacedDigit().frame(minWidth: 64, alignment: .trailing)
         }
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .help(wFine(watts) + " · " + tr(estimated ? "Оценка по времени CPU: macOS считает энергию на всё приложение, здесь она поделена между его процессами"
               : "Энергия CPU по учёту macOS плюс доля энергии GPU"))
     }
@@ -42,8 +130,7 @@ struct HeatBasePicker: View {
             Text("От максимума").tag(HeatBase.maximum)
             Text("От общей").tag(HeatBase.total)
         }
-        .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
-        .help("От максимума: какую часть полной мощности CPU и GPU берёт процесс. От общей: его доля в текущей нагрузке, вместе 100%.")
+        .pickerStyle(.inline).labelsHidden()
     }
 }
 
@@ -74,17 +161,15 @@ struct ProcessTable: View {
             TableColumn("Нагрев", value: \.heat) { row in
                 HeatBar(percent: m.heatShare(row), watts: row.heat, share: m.heatShare(row) / 100, estimated: row.estimated)
             }
-            .width(145)
+            .width(min: 180, ideal: 190)
             .customizationID("heat")
             TableColumn("CPU", value: \.cpuShare) { row in
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(pct(row.cpuShare)).monospacedDigit()
-                    Text(String(format: tr("≈%.1f ядра"), row.cpu / 100)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .help(tr("CPU: 100% — весь процессор, а не одно ядро.") + " " + String(format: tr("По шкале одного ядра: %.1f%%."), row.cpu))
+                Text(pct(row.cpuShare)).monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .help(tr("CPU: 100% — весь процессор, а не одно ядро.") + " " + String(format: tr("≈%.1f ядра"), row.cpu / 100)
+                          + ". " + String(format: tr("По шкале одного ядра: %.1f%%."), row.cpu))
             }
-            .width(100)
+            .width(70)
             .customizationID("cpu")
             TableColumn("Время GPU", value: \.gpu) { row in
                 Text(pct(row.gpu)).monospacedDigit()
@@ -98,7 +183,7 @@ struct ProcessTable: View {
                 Text(row.memMB >= 1024 ? String(format: tr("%.1f ГБ"), row.memMB / 1024) : String(format: tr("%.0f МБ"), row.memMB))
                     .monospacedDigit().frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .width(110)
+            .width(90)
             .customizationID("mem")
         }
         .contextMenu(forSelectionType: Row.ID.self) { ids in
@@ -113,4 +198,3 @@ struct ProcessTable: View {
         }
     }
 }
-

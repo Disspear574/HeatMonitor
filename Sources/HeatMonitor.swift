@@ -411,12 +411,6 @@ enum SystemInfo {
         return (Double(x.xsu_used), Double(x.xsu_total))
     }
 
-    static func disk() -> (free: Double, total: Double)? {
-        let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
-        guard let free = v?.volumeAvailableCapacityForImportantUsage, let total = v?.volumeTotalCapacity else { return nil }
-        return (Double(free), Double(total))
-    }
-
     /// Connected USB-C and MagSafe ports. macOS publishes no watts going out to a device, only the bus power it reserves.
     static func ports() -> [PortLink] {
         var it: io_iterator_t = 0
@@ -811,7 +805,6 @@ final class Monitor {
     var gpuWatts: Double?
     var memUsed: Double = 0
     var swap: (used: Double, total: Double) = (0, 0)
-    var disk: (free: Double, total: Double)?
     var battery: SystemInfo.Battery?
     var ports: [PortLink] = []
     var fans: [SMCReader.Fan] = []
@@ -833,7 +826,6 @@ final class Monitor {
     private let gpuPower = GPUPower()
     private var top: TopStream?
     private var timer: Timer?
-    private var ticks = 0
     // IOKit sensor reads block for up to ~40 ms, so they run here, never on the main thread.
     private let io = DispatchQueue(label: "sensors", qos: .utility)
 
@@ -870,7 +862,6 @@ final class Monitor {
         let ports: [PortLink]
         let fans: [SMCReader.Fan]
         let palmRest: [Double]
-        let disk: (free: Double, total: Double)?
     }
 
     // M2 and later name CPU die sensors "PMU tdie*"; M1 uses "*ACC MTR Temp Sensor*".
@@ -967,7 +958,7 @@ final class Monitor {
 
     func stopLight() { lightTimer?.invalidate(); lightTimer = nil }
 
-    // Only what the label shows: SMC keys and tick counters, no top, IOReport or disk.
+    // Only what the label shows: SMC keys and tick counters, no top or IOReport.
     private func sampleLight() {
         io.async { [smc, temps, coreKeys, cpuLoad, weak self] in
             Self.findCoreKeys(smc, coreKeys)
@@ -1057,8 +1048,6 @@ final class Monitor {
     }
 
     private func refreshSystem() {
-        let readDisk = ticks % 10 == 0
-        ticks += 1
         io.async { [temps, smc, coreKeys, gpuPower, weak self] in
             Self.findCoreKeys(smc, coreKeys)
             let power = smc.power()
@@ -1068,7 +1057,7 @@ final class Monitor {
                                 gpuCores: smc.temperatures(coreKeys.gpu).map(\.value),
                                 gpu: SystemInfo.gpuUtilization(), gpuWatts: gpuPower.watts(), memUsed: SystemInfo.memoryUsed(),
                                 swap: SystemInfo.swap(), battery: SystemInfo.battery(systemW: power.system, adapterW: power.adapter),
-                                ports: SystemInfo.ports(), fans: smc.fans(), palmRest: smc.palmRest(), disk: readDisk ? SystemInfo.disk() : nil)
+                                ports: SystemInfo.ports(), fans: smc.fans(), palmRest: smc.palmRest())
             Task { @MainActor in self?.publish(snap) }
         }
     }
@@ -1095,7 +1084,6 @@ final class Monitor {
         fans = s.fans
         if !fanBusy, fanTarget == s.fans.contains(where: \.manual) { fanTarget = nil }
         palmRest = s.palmRest
-        if let d = s.disk { disk = d }
         thermal = ProcessInfo.processInfo.thermalState
         readings = Readings(cpuTemp: cpuHot, gpuTemp: gpuHot, fanRPM: s.fans.map(\.rpm).max(),
                             systemW: s.battery?.systemW, cpuLoad: cpuUsage)
@@ -1154,6 +1142,9 @@ final class Monitor {
         hottest = Set(r.filter { $0.heat >= 1 }.sorted { $0.heat > $1.heat }.prefix(3).map(\.id))
     }
 
+    // The process with the most heat, whatever the table's sort order.
+    var hottestRow: Row? { rows.max { $0.heat < $1.heat }.flatMap { $0.heat >= 0.05 ? $0 : nil } }
+
     func heatShare(_ r: Row) -> Double { heatPercent(r.heat, of: heatBase, ceiling: heatCeiling, total: heatTotal) }
 
     var heatCaption: String {
@@ -1196,15 +1187,7 @@ final class Monitor {
 
 // MARK: - UI
 
-func tempColor(_ t: Double) -> Color {
-    // Apple Silicon cores run at 100–110° under full load before throttling.
-    switch t {
-    case ..<70: return .green
-    case ..<85: return .yellow
-    case ..<100: return .orange
-    default: return .red
-    }
-}
+func tempColor(_ t: Double) -> Color { TempLevel(t).text }
 
 func caseColor(_ t: Double) -> Color { t < 35 ? .secondary : t < 41 ? .yellow : .orange }
 
@@ -1352,84 +1335,6 @@ struct Stat: View {
     }
 }
 
-struct Header: View {
-    var m: Monitor
-    var body: some View {
-        let (stateText, stateColor) = thermalText(m.thermal)
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 24) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Температура CPU").font(.caption).foregroundStyle(.secondary)
-                    RollingText(value: fmt(m.cpuHot))
-                        .font(.system(size: 54, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(tempColor(m.cpuHot ?? 0))
-                        .help("Самое горячее ядро, среднее за 5 секунд")
-                    Text("пик за 5 с: \(fmt(m.cpuPeak))").font(.caption).foregroundStyle(.secondary)
-                    Label(stateText, systemImage: "thermometer.medium").foregroundStyle(stateColor).font(.callout)
-                        .help("Оценка macOS: снижает ли система частоты из-за нагрева")
-                    Sparkline(values: m.history)
-                        .frame(width: 160, height: 32)
-                        .padding(.top, 6)
-                        .help("Температура CPU за последние 3 минуты")
-                }
-                .frame(width: 170, alignment: .leading)
-
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 14) {
-                    GridRow {
-                        SectionTitle("Тепло")
-                        Stat(title: "CPU средн.", value: fmt(m.cpuMean), color: tempColor(m.cpuMean ?? 0))
-                        Stat(title: "GPU", value: fmt(m.gpuHot), color: tempColor(m.gpuHot ?? 0))
-                        Stat(title: "SSD", value: fmt(m.ssd))
-                        Stat(title: "Батарея", value: fmt(m.batteryTemp))
-                        Stat(title: "Трекпад",
-                             value: m.palmRest.isEmpty ? "—" : m.palmRest.map(fmt).joined(separator: " · "),
-                             color: caseColor(m.palmRest.max() ?? 0))
-                            .help("Датчики трекпада: поверхность и привод отклика")
-                        Stat(title: m.fans.count > 1 ? "Вентиляторы" : "Вентилятор", value: fansText)
-                    }
-                    GridRow {
-                        SectionTitle("Нагрузка")
-                        Stat(title: "CPU · \(SystemInfo.cores) ядер", value: pct(m.cpuUsage) + " · " + String(format: tr("≈%.1f ядра"), m.cpuUsage / 100 * Double(SystemInfo.cores)))
-                        Stat(title: "GPU", value: gpuText)
-                            .help("Доля времени, когда GPU занят. На низкой частоте лёгкая работа даёт десятки процентов; реальную нагрузку показывают ватты")
-                        Stat(title: "Память", value: ofGB(m.memUsed, SystemInfo.totalRAM))
-                        Stat(title: "Swap", value: m.swap.total > 0 ? ofGB(m.swap.used, m.swap.total) : tr("нет"))
-                        Stat(title: "Диск свободно", value: m.disk.map { ofGB($0.free, $0.total) } ?? "—")
-                            .gridCellColumns(m.fans.isEmpty ? 2 : 1)
-                        if !m.fans.isEmpty { FanSwitch(m: m) }
-                    }
-                    if let b = m.battery {
-                        PowerRow(b: b)
-                    }
-                }
-            }
-            if let b = m.battery {
-                let s = adapterStatus(b)
-                Label(s.1, systemImage: s.0)
-                    .font(.callout).foregroundStyle(s.2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Label(m.heatReason, systemImage: "flame")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-        }
-        .padding(16)
-    }
-
-    private var fansText: String {
-        if m.fans.isEmpty { return tr("нет") }
-        let rpm = m.fans.map(\.rpm).max() ?? 0
-        return rpm < 1 ? tr("стоят") : String(format: tr("%.0f об/мин"), rpm)
-    }
-
-    private var gpuText: String {
-        guard let busy = m.gpu else { return "—" }
-        let pct = String(format: "%.0f%%", busy)
-        return m.gpuWatts.map { pct + " · " + w($0) } ?? pct
-    }
-}
-
 /// Auto or maximum fans; the state comes from the SMC, so another fan app's manual mode shows too.
 struct FanSwitch: View {
     var m: Monitor
@@ -1446,47 +1351,6 @@ struct FanSwitch: View {
             .help("Макс спрашивает пароль администратора. При выходе из приложения вентиляторы вернутся в Авто.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-struct SectionTitle: View {
-    let text: LocalizedStringKey
-    init(_ text: LocalizedStringKey) { self.text = text }
-    var body: some View {
-        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
-            .frame(width: 70, alignment: .leading)
-    }
-}
-
-struct PowerRow: View {
-    let b: SystemInfo.Battery
-
-    // The status line below explains charging; the tile keeps only what fits: percent and time left.
-    private var timeLeft: String? {
-        guard !b.plugged, let m = b.minutesLeft else { return nil }
-        return String(format: "%ld:%02ld", m / 60, m % 60)
-    }
-
-    private var flow: (String, Color) {
-        guard let v = b.batteryW else { return ("—", .primary) }
-        if v > 0.3 { return (String(format: tr("+%.1f Вт"), v), .green) }
-        if v < -0.3 { return (String(format: tr("−%.1f Вт"), -v), b.plugged ? .orange : .primary) }
-        return (tr("0 Вт"), .primary)
-    }
-
-    var body: some View {
-        GridRow {
-            SectionTitle("Питание")
-            Stat(title: "Заряд", value: [b.percent.map { "\($0)%" }, timeLeft].compactMap { $0 }.joined(separator: " · "))
-            Stat(title: "Батарея сейчас", value: flow.0, color: flow.1)
-            Stat(title: "Потребляет", value: w(b.systemW))
-            Stat(title: "Адаптер", value: !b.plugged ? tr("не подключён")
-                 : b.adapterInW.flatMap { inW in b.adapterMaxW.map { String(format: tr("%.0f из %ld Вт"), inW, $0) } } ?? w(b.adapterInW))
-                .help("Сколько ватт идёт от адаптера и сколько доступно. Доступное Mac согласует с блоком питания: разъём может дать меньше, чем написано на блоке.")
-            Stat(title: "Здоровье", value: [b.healthPercent.map { "\($0)%" }, b.cycles.map { String(format: tr("%ld цикл."), $0) }]
-                    .compactMap { $0 }.joined(separator: " · ").ifEmpty("—"))
-                .gridCellColumns(2)
-        }
     }
 }
 
@@ -1535,155 +1399,6 @@ func adapterStatus(_ b: SystemInfo.Battery) -> (String, String, Color) {
         return ("pause.circle", tr("Подключено, но не заряжается: оптимизированная зарядка или лимит заряда в настройках."), .secondary)
     }
     return ("checkmark.circle", String(format: tr("Блока питания хватает: доступно %@"), rated) + spare + ".", .green)
-}
-
-struct HeatBar: View {
-    let percent: Double
-    let watts: Double
-    let share: Double
-    let estimated: Bool
-    var body: some View {
-        HStack(spacing: 6) {
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary.opacity(0.5))
-                Capsule().fill(share > 0.6 ? Color.red : share > 0.25 ? .orange : .yellow)
-                    .frame(width: 50 * min(max(share, 0), 1))
-            }
-            .frame(width: 50, height: 6)
-            VStack(alignment: .trailing, spacing: 1) {
-                Text((estimated ? "≈" : "") + pct(percent)).monospacedDigit()
-                Text((estimated ? "≈" : "") + wFine(watts)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-        }
-        .help(wFine(watts) + " · " + tr(estimated ? "Оценка по времени CPU: macOS считает энергию на всё приложение, здесь она поделена между его процессами"
-              : "Энергия CPU по учёту macOS плюс доля энергии GPU"))
-    }
-}
-
-/// Shares of the Mac's maximum or of the current total; the choice is shared with Settings.
-struct HeatBasePicker: View {
-    var m: Monitor
-    @AppStorage(Pref.heatBase) private var raw = HeatBase.auto.rawValue
-    var body: some View {
-        Picker("Нагрев", selection: Binding(get: { m.heatBase }, set: { raw = $0.rawValue })) {
-            Text("От максимума").tag(HeatBase.maximum)
-            Text("От общей").tag(HeatBase.total)
-        }
-        .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
-        .help("От максимума: какую часть полной мощности CPU и GPU берёт процесс. От общей: его доля в текущей нагрузке, вместе 100%.")
-    }
-}
-
-struct ProcessTable: View {
-    @Bindable var m: Monitor
-    // Redraws the table at once when the heat base changes here or in Settings.
-    @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
-    @Binding var selection: Set<Row.ID>
-    @Binding var columns: TableColumnCustomization<Row>
-
-    var body: some View {
-        Table(m.rows, selection: $selection, sortOrder: $m.sortOrder, columnCustomization: $columns) {
-            TableColumn("Процесс", value: \.name) { row in
-                HStack(spacing: 6) {
-                    // Fixed slot keeps icons aligned whether or not the flame is shown.
-                    Image(systemName: "flame.fill").foregroundStyle(.orange)
-                        .opacity(m.hottest.contains(row.id) ? 1 : 0)
-                        .frame(width: 12)
-                        .help("Один из главных источников нагрева")
-                    Image(nsImage: row.icon).resizable().frame(width: 16, height: 16)
-                    Text(row.name).lineLimit(1).truncationMode(.middle).help(row.name)
-                    if row.count > 1 { Text("×\(row.count)").foregroundStyle(.secondary) }
-                }
-            }
-            .width(min: 180, ideal: 280, max: 340)
-            .customizationID("name")
-            .disabledCustomizationBehavior(.visibility)
-            TableColumn("Нагрев", value: \.heat) { row in
-                HeatBar(percent: m.heatShare(row), watts: row.heat, share: m.heatShare(row) / 100, estimated: row.estimated)
-            }
-            .width(145)
-            .customizationID("heat")
-            TableColumn("CPU", value: \.cpuShare) { row in
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(pct(row.cpuShare)).monospacedDigit()
-                    Text(String(format: tr("≈%.1f ядра"), row.cpu / 100)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .help(tr("CPU: 100% — весь процессор, а не одно ядро.") + " " + String(format: tr("По шкале одного ядра: %.1f%%."), row.cpu))
-            }
-            .width(100)
-            .customizationID("cpu")
-            TableColumn("Время GPU", value: \.gpu) { row in
-                Text(pct(row.gpu)).monospacedDigit()
-                    .help(tr("Время GPU за интервал. Это не доля общей мощности GPU; значения процессов могут суммироваться выше 100%."))
-                    .foregroundStyle(row.gpu < 0.05 ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .width(80)
-            .customizationID("gpu")
-            TableColumn("Память", value: \.memMB) { row in
-                Text(row.memMB >= 1024 ? String(format: tr("%.1f ГБ"), row.memMB / 1024) : String(format: tr("%.0f МБ"), row.memMB))
-                    .monospacedDigit().frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .width(110)
-            .customizationID("mem")
-        }
-        .contextMenu(forSelectionType: Row.ID.self) { ids in
-            if let id = ids.first, let row = m.rows.first(where: { $0.id == id }) {
-                Button("Найти в интернете, что это") { m.search(row) }
-                Divider()
-                Button("Завершить «\(row.name)»") { m.terminate(row) }
-                if let path = row.appPath {
-                    Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                }
-            }
-        }
-    }
-}
-
-struct ActionBar: View {
-    var m: Monitor
-    let selected: Row?
-    var body: some View {
-        HStack(spacing: 10) {
-            if let row = selected {
-                Image(nsImage: row.icon).resizable().frame(width: 16, height: 16)
-                Text(row.name).lineLimit(1).truncationMode(.middle)
-                Text(row.count > 1 ? String(format: tr("процессов: %ld"), row.count) : "PID \(row.pids[0])")
-                    .foregroundStyle(.secondary).textSelection(.enabled)
-                Spacer()
-                Button("Найти в интернете") { m.search(row) }
-                if let path = row.appPath {
-                    Button("Показать в Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                }
-                Button("Завершить", role: .destructive) { m.terminate(row) }
-                    .keyboardShortcut(.delete, modifiers: [])
-            } else {
-                Text(m.message ?? tr("Выберите процесс в списке, чтобы завершить его. Клик по заголовку столбца меняет сортировку."))
-                    .foregroundStyle(m.message == nil ? Color.secondary : Color.orange)
-                    .lineLimit(2)
-                Spacer()
-            }
-        }
-        .font(.callout)
-        .padding(.horizontal, 16).padding(.vertical, 8)
-    }
-}
-
-/// Show/hide table columns; the choice survives relaunches.
-struct ColumnsMenu: View {
-    @Binding var columns: TableColumnCustomization<Row>
-    private let items = [("heat", "Нагрев"), ("cpu", "CPU"), ("gpu", "GPU"), ("mem", "Память")]
-    var body: some View {
-        Menu("Столбцы") {
-            ForEach(items, id: \.0) { id, title in
-                Toggle(tr(title), isOn: Binding(
-                    get: { columns[visibility: id] != .hidden },
-                    set: { columns[visibility: id] = $0 ? .visible : .hidden }))
-            }
-        }
-        .fixedSize()
-    }
 }
 
 /// Raw dump of every temperature sensor, for finding the right keys on another Mac model.
@@ -1806,68 +1521,6 @@ struct SensorsButton: View {
     }
 }
 
-struct ContentView: View {
-    @Bindable var m: Monitor
-    @State private var selection = Set<Row.ID>()
-    @AppStorage("columns") private var storedColumns = Data()
-    @State private var columns: TableColumnCustomization<Row> = {
-        var c = TableColumnCustomization<Row>()
-        c[visibility: "gpu"] = .hidden
-        return c
-    }()
-
-    var body: some View {
-        let selected = selection.first.flatMap { id in m.rows.first { $0.id == id } }
-        VStack(spacing: 0) {
-            Header(m: m)
-            Divider()
-            TabView {
-                processes(selected).tabItem { Text("Что греет Mac") }
-                AdviceView().tabItem { Text("Советы") }
-            }
-            .padding(.top, 8)
-        }
-        .frame(minWidth: 880, minHeight: 640)
-        .onChange(of: selection) { _, _ in m.message = nil }
-        .onAppear {
-            if let saved = try? JSONDecoder().decode(TableColumnCustomization<Row>.self, from: storedColumns) { columns = saved }
-        }
-        .onChange(of: columns) { _, c in storedColumns = (try? JSONEncoder().encode(c)) ?? Data() }
-    }
-
-    private func processes(_ selected: Row?) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Что греет Mac").font(.headline)
-                Text(m.heatCaption).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(m.heatCaption)
-                Spacer()
-                HeatBasePicker(m: m)
-                Toggle("Группировать по приложениям", isOn: $m.grouped).toggleStyle(.checkbox)
-                ColumnsMenu(columns: $columns)
-                SensorsButton()
-            }
-            .padding(.horizontal, 16).padding(.vertical, 8)
-            HStack {
-                Text(String(format: tr("CPU всего: %@ · в показанных строках: %@ · во всей выборке: %@"),
-                            pct(m.cpuUsage), pct(m.rows.reduce(0) { $0 + $1.cpuShare }), pct(m.sampledCPU)))
-                Spacer()
-                Text(String(format: tr("Строк: %ld из %ld"), m.rows.count, m.sampledRows))
-            }
-            .font(.caption).foregroundStyle(.secondary)
-            .padding(.horizontal, 16).padding(.bottom, 6)
-            .help(tr("Общий CPU включает все процессы. Список ограничен 120 процессами и 40 строками; доли округлены, показания разных источников могут немного расходиться. Нажмите CPU, чтобы сортировать по загрузке процессора."))
-            ProcessTable(m: m, selection: $selection, columns: $columns)
-                .overlay {
-                    if m.rows.isEmpty {
-                        ProgressView("Собираю список процессов…").controlSize(.small)
-                    }
-                }
-            Divider()
-            ActionBar(m: m, selected: selected)
-        }
-    }
-}
-
 extension View {
     func whileOnScreen(start: @escaping @MainActor () -> Void, stop: @escaping @MainActor () -> Void) -> some View {
         modifier(WhileOnScreen(start: start, stop: stop))
@@ -1952,10 +1605,14 @@ final class Windows {
 
     func showMain(_ m: Monitor) {
         if main == nil {
-            let w = window(ContentView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 960, height: 760), autosave: "main") { [weak self] in
+            let w = window(MainView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 900, height: 600), autosave: "main") { [weak self] in
                 self?.main = nil
                 self?.setMainVisible(false)
             }
+            // The split view puts the section name in the title and its toolbar under it.
+            w.styleMask.insert(.fullSizeContentView)
+            w.toolbarStyle = .unified
+            (w.contentViewController as? NSHostingController<MainView>)?.sceneBridgingOptions = [.title, .toolbars]
             observe(w, NSWindow.didChangeOcclusionStateNotification) { [weak self] w in
                 self?.setMainVisible(w.isVisible && w.occlusionState.contains(.visible), settle: true)
             }

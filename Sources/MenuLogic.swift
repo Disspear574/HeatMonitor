@@ -181,3 +181,78 @@ func percentText(_ value: Double) -> String {
     if value < 0.1 { return "<0.1%" }
     return String(format: value < 10 ? "%.1f%%" : "%.0f%%", value)
 }
+
+/// Temperature band of a CPU reading; Apple Silicon cores run at 100–110° under full load.
+enum TempLevel: Int, CaseIterable {
+    case ok, warm, hot, crit
+
+    init(_ t: Double) {
+        switch t {
+        case ..<70: self = .ok
+        case ..<85: self = .warm
+        case ..<100: self = .hot
+        default: self = .crit
+        }
+    }
+
+    static func optional(_ t: Double?) -> TempLevel? { t.map(TempLevel.init) }
+
+    var wordKey: String {
+        switch self { case .ok: "Норма"; case .warm: "Тепло"; case .hot: "Горячо"; case .crit: "Критично" }
+    }
+}
+
+func scaleFraction(_ t: Double, from lo: Double = 30, to hi: Double = 110) -> Double {
+    min(max((t - lo) / (hi - lo), 0), 1)
+}
+
+/// Whether the adapter covers what the Mac draws.
+enum PowerVerdict: Equatable {
+    case enough(spareW: Double?), short(deficitW: Double), battery(drawW: Double?), unknown
+
+    static func make(plugged: Bool?, batteryW: Double?, adapterInW: Double?, adapterMaxW: Int?, systemW: Double?) -> PowerVerdict {
+        guard let plugged else { return .unknown }
+        guard plugged else { return .battery(drawW: systemW) }
+        if let v = batteryW, adapterShort(batteryW: v, adapterInW: adapterInW, adapterMaxW: adapterMaxW) { return .short(deficitW: -v) }
+        guard let max = adapterMaxW, let inW = adapterInW else { return .enough(spareW: nil) }
+        return .enough(spareW: Double(max) - inW)
+    }
+}
+
+/// A heat cause the process list does not show.
+enum HeatCause: Equatable { case graphics(Double), fastCharge(Double) }
+
+// GPU busy percent reads high at idle clocks, so only real power counts.
+func extraHeatCauses(gpuWatts: Double?, batteryW: Double?) -> [HeatCause] {
+    var out: [HeatCause] = []
+    if let g = gpuWatts, g >= 5 { out.append(.graphics(g)) }
+    if let b = batteryW, b > 15 { out.append(.fastCharge(b)) }
+    return out
+}
+
+/// Fan controls, or trackpad temperatures on a fanless Mac.
+enum FanCardKind { case fans, chassis }
+
+func fanCardKind(fanCount: Int) -> FanCardKind { fanCount > 0 ? .fans : .chassis }
+
+/// How often the Advice checks run: fast in the section and until a CPU sample exists, slow for the sidebar count.
+enum AdviceSchedule {
+    static let section: TimeInterval = 5
+    static let badge: TimeInterval = 60
+
+    static func interval(windowOnScreen: Bool, adviceShown: Bool, hasCPUSample: Bool) -> TimeInterval? {
+        guard windowOnScreen else { return nil }
+        return adviceShown || !hasCPUSample ? section : badge
+    }
+}
+
+/// A section of the main window's sidebar.
+enum WindowSection: String, CaseIterable, Identifiable {
+    case overview, processes, cooling, power, advice
+
+    var id: String { rawValue }
+    var shortcut: Character { Character(String((Self.allCases.firstIndex(of: self) ?? 0) + 1)) }
+    var titleKey: String {
+        switch self { case .overview: "Обзор"; case .processes: "Процессы"; case .cooling: "Охлаждение"; case .power: "Питание"; case .advice: "Советы" }
+    }
+}

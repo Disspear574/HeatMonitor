@@ -1,0 +1,5 @@
+/* Temperature status words; a table of their own because "Тепло" also labels the heat row. */
+"Норма" = "Normal";
+"Тепло" = "Warm";
+"Горячо" = "Hot";
+"Критично" = "Critical";

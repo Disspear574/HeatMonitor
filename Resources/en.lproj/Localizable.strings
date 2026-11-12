@@ -21,10 +21,15 @@
 "CPU · %lld ядер" = "CPU · %lld cores";
 "Доля времени, когда GPU занят. На низкой частоте лёгкая работа даёт десятки процентов; реальную нагрузку показывают ватты" = "Share of time the GPU is busy. At a low clock even light work shows tens of percent; watts show the real load";
 "Память" = "Memory";
-"Диск свободно" = "Disk free";
 "%@ из %@ ГБ" = "%@ of %@ GB";
 "%.1f Вт" = "%.1f W";
 "%.2f Вт" = "%.2f W";
+
+/* Sidebar */
+"Обзор" = "Overview";
+"Процессы" = "Processes";
+"Охлаждение" = "Cooling";
+"Советы" = "Advice";
 
 /* Thermal state */
 "Частоты не снижены" = "Full speed";
@@ -102,13 +107,11 @@
 "%.1f ГБ" = "%.1f GB";
 "%.0f МБ" = "%.0f MB";
 "процессов: %ld" = "processes: %ld";
-"Столбцы" = "Columns";
 "Найти в интернете, что это" = "Search the web for what this is";
 "Найти в интернете" = "Search the web";
 "Показать в Finder" = "Show in Finder";
 "Завершить «%@»" = "Quit “%@”";
 "Завершить" = "Quit";
-"Выберите процесс в списке, чтобы завершить его. Клик по заголовку столбца меняет сортировку." = "Select a process in the list to quit it. Click a column header to change the sorting.";
 "«%@» — системный процесс, завершить его можно только с правами администратора." = "“%@” is a system process; only an administrator can quit it.";
 "процесс macOS что это и почему грузит систему" = "process macOS what is it and why is it using so much CPU";
 
@@ -204,6 +207,20 @@
 "≈%.1f ядра" = "≈%.1f cores";
 "По шкале одного ядра: %.1f%%." = "On the single-core scale: %.1f%%.";
 "нагрев — доля учтённой энергии CPU и GPU, не загрузка CPU; ≈ — оценка" = "heat is a share of accounted CPU and GPU energy, not CPU utilization; ≈ means estimated";
-"CPU всего: %@ · в показанных строках: %@ · во всей выборке: %@" = "Total CPU: %@ · displayed rows: %@ · entire sample: %@";
-"Строк: %ld из %ld" = "Rows: %ld of %ld";
-"Общий CPU включает все процессы. Список ограничен 120 процессами и 40 строками; доли округлены, показания разных источников могут немного расходиться. Нажмите CPU, чтобы сортировать по загрузке процессора." = "Total CPU includes all processes. The list is limited to 120 processes and 40 rows; values are rounded and different sources may differ slightly. Click CPU to sort by processor usage.";
+
+/* Sections of the main window: each track adds its lines above its own end marker. */
+
+/* Overview */
+/* end Overview */
+
+/* Cooling */
+/* end Cooling */
+
+/* Processes */
+/* end Processes */
+
+/* Power */
+/* end Power */
+
+/* Advice */
+/* end Advice */

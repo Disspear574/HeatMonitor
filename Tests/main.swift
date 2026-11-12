@@ -96,6 +96,12 @@ check(deviceName(vendor: "Ugreen Group Limited", model: "Thunderbolt 4 Docking S
 check(deviceName(vendor: "CalDigit, Inc.", model: "CalDigit TS4") == "CalDigit TS4", "brand already in model")
 check(deviceName(vendor: nil, model: "TS4") == "TS4", "no vendor")
 
+// usbProductName: firmware underscores and shouting go, acronyms and mixed case stay.
+check(usbProductName("SAMSUNG_Android") == "Samsung Android", "Samsung firmware name")
+check(usbProductName("iPhone") == "iPhone", "mixed case kept")
+check(usbProductName("USB 10/100/1000 LAN") == "USB 10/100/1000 LAN", "acronyms kept")
+check(usbProductName("Portable SSD T7") == "Portable SSD T7", "short caps kept")
+
 // Percentages use the whole CPU, keep small loads visible, and require fresh deltas.
 check(machineCPUPercent(42, cores: 12) == 3.5, "42% of one core is 3.5% of a 12-core CPU")
 check(machineCPUPercent(1200, cores: 12) == 100, "all cores fully busy")

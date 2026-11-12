@@ -71,6 +71,8 @@ check(!adapterShort(batteryW: -0.9, adapterInW: 13.7, adapterMaxW: 85), "headroo
 check(adapterShort(batteryW: -5, adapterInW: 80, adapterMaxW: 85), "adapter at its limit")
 check(adapterShort(batteryW: -2, adapterInW: nil, adapterMaxW: nil), "unknown adapter keeps the warning")
 check(!adapterShort(batteryW: -0.3, adapterInW: 84, adapterMaxW: 85), "draw below 0.5 W")
+// A 100 W adapter that delivers only 83 W while the battery gives 6.9 W is short.
+check(adapterShort(batteryW: -6.9, adapterInW: 83, adapterMaxW: 100), "battery draw below the rating")
 check(!adapterShort(batteryW: nil, adapterInW: 84, adapterMaxW: 85), "no battery reading")
 
 // usbDevices: a device on a data wire is named, a supply is not.
@@ -114,6 +116,40 @@ check(intervalCPU(previous: nil, current: 999, seconds: 5) == nil, "first readin
 check(intervalCPU(previous: 100, current: 102.1, seconds: 5).map { abs($0 - 42) < 0.0001 } == true, "CPU delta over interval")
 check(intervalCPU(previous: 100, current: 2, seconds: 5) == nil, "reset counter is unavailable")
 check(intervalCPU(previous: 1, current: 2, seconds: 0) == nil, "zero interval is unavailable")
+
+// TempLevel and scale: thresholds 70 / 85 / 100, scale 30–110.
+check(TempLevel(69.9) == .ok && TempLevel(70) == .warm && TempLevel(85) == .hot && TempLevel(100) == .crit, "levels")
+check(scaleFraction(30) == 0 && scaleFraction(70) == 0.5 && scaleFraction(110) == 1, "scale ends and middle")
+check(scaleFraction(10) == 0 && scaleFraction(130) == 1, "scale clamps")
+// No reading yet is shown as a dash, never as "ok".
+check(TempLevel.optional(nil) == nil && TempLevel.optional(90) == .hot, "optional level")
+
+// PowerVerdict: 33 of 140 W with a full battery is enough with 107 W spare.
+check(PowerVerdict.make(plugged: true, batteryW: -6.9, adapterInW: 83, adapterMaxW: 100, systemW: 108.9) == .short(deficitW: 6.9), "short below rating")
+check(PowerVerdict.make(plugged: true, batteryW: -1, adapterInW: 33, adapterMaxW: 140, systemW: 33.1) == .enough(spareW: 107), "enough + spare")
+check(PowerVerdict.make(plugged: true, batteryW: -12, adapterInW: 64, adapterMaxW: 67, systemW: 76) == .short(deficitW: 12), "short")
+check(PowerVerdict.make(plugged: false, batteryW: -9, adapterInW: nil, adapterMaxW: nil, systemW: 9) == .battery(drawW: 9), "on battery")
+check(PowerVerdict.make(plugged: nil, batteryW: nil, adapterInW: nil, adapterMaxW: nil, systemW: nil) == .unknown, "no battery")
+
+// Extra heat causes keep heatReason's thresholds.
+check(extraHeatCauses(cpuUsage: 59, gpuWatts: 4.9, batteryW: 15) == [], "below thresholds")
+check(extraHeatCauses(cpuUsage: 84, gpuWatts: 5, batteryW: 15.1) == [.cpuLoad(84), .graphics(5), .fastCharge(15.1)], "all, CPU first")
+
+// A fanless Air gets the chassis card.
+check(fanCardKind(fanCount: 0) == .chassis && fanCardKind(fanCount: 2) == .fans, "fan card kind")
+
+// Advice: nothing while closed, 5 s until a CPU sample, then 60 s outside the section.
+check(AdviceSchedule.interval(windowOnScreen: false, adviceShown: true, hasCPUSample: true) == nil, "closed: no timer")
+check(AdviceSchedule.interval(windowOnScreen: true, adviceShown: false, hasCPUSample: false) == 5, "open: second read after 5 s")
+check(AdviceSchedule.interval(windowOnScreen: true, adviceShown: false, hasCPUSample: true) == 60, "badge pace")
+check(AdviceSchedule.interval(windowOnScreen: true, adviceShown: true, hasCPUSample: true) == 5, "section pace")
+
+// Sections: ⌘1–⌘5 in sidebar order.
+check(WindowSection.allCases.map(\.shortcut) == ["1", "2", "3", "4", "5"], "section shortcuts")
+check(WindowSection.cooling.titleKey == "Охлаждение", "section title key")
+
+powerAdviceTests()
+limiterTests()
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

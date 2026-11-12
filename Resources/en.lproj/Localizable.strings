@@ -3,45 +3,42 @@
 /* Window and header */
 "Диспетчер тепла" = "Heat Monitor";
 "Температура CPU" = "CPU temperature";
-"Самое горячее ядро, среднее за 5 секунд" = "Hottest core, 5-second average";
 "пик за 5 с: %@" = "5 s peak: %@";
-"Температура CPU за последние 3 минуты" = "CPU temperature over the last 3 minutes";
 "Тепло" = "Heat";
 "Нагрузка" = "Load";
 "Питание" = "Power";
 "CPU средн." = "CPU avg";
 "Батарея" = "Battery";
 "Трекпад" = "Trackpad";
-"Датчики трекпада: поверхность и привод отклика" = "Trackpad sensors: surface and haptic actuator";
 "Вентиляторы" = "Fans";
-"Вентилятор" = "Fan";
 "нет" = "none";
 "стоят" = "stopped";
 "%.0f об/мин" = "%.0f rpm";
-"CPU · %lld ядер" = "CPU · %lld cores";
-"Доля времени, когда GPU занят. На низкой частоте лёгкая работа даёт десятки процентов; реальную нагрузку показывают ватты" = "Share of time the GPU is busy. At a low clock even light work shows tens of percent; watts show the real load";
 "Память" = "Memory";
-"Диск свободно" = "Disk free";
 "%@ из %@ ГБ" = "%@ of %@ GB";
 "%.1f Вт" = "%.1f W";
 "%.2f Вт" = "%.2f W";
 
+/* Sidebar */
+"Обзор" = "Overview";
+"Процессы" = "Processes";
+"Охлаждение" = "Cooling";
+"Советы" = "Advice";
+
 /* Thermal state */
 "Частоты не снижены" = "Full speed";
 "Слегка горячо" = "Slightly hot";
-"Оценка macOS: снижает ли система частоты из-за нагрева" = "macOS assessment: whether the system lowers clock speeds because of heat";
 "Горячо — частоты снижаются" = "Hot — clock speeds are lowered";
 "Критично" = "Critical";
 
 /* Power */
 "Заряд" = "Charge";
-"Батарея сейчас" = "Battery now";
 "+%.1f Вт" = "+%.1f W";
 "−%.1f Вт" = "−%.1f W";
 "0 Вт" = "0 W";
-"Потребляет" = "System draw";
 "Адаптер" = "Adapter";
 "%.0f из %ld Вт" = "%.0f of %ld W";
+"адаптер %.0f из %ld Вт" = "adapter %.0f of %ld W";
 "не подключён" = "not connected";
 "На USB-C: %@" = "On USB-C: %@";
 "Питание: %@." = "Power: %@.";
@@ -62,7 +59,6 @@
 "ещё %.1f Вт идёт из батареи." = "%.1f W more comes from the battery.";
 "Блок питания на пределе: %@ из %@ доступных." = "The power adapter is at its limit: %@ of %@ available.";
 "Быстрая зарядка: от адаптера %@ из %@ доступных, в батарею идёт +%.0f Вт." = "Fast charging: the adapter gives %@ of %@ available, +%.0f W goes to the battery.";
-"Сколько ватт идёт от адаптера и сколько доступно. Доступное Mac согласует с блоком питания: разъём может дать меньше, чем написано на блоке." = "Watts coming from the adapter and watts available. The Mac negotiates what is available with the power adapter: the port can give less than the adapter's label.";
 ", запас %.0f Вт" = ", %.0f W to spare";
 "Блока питания хватает: батарея заряжается на +%.1f Вт" = "The power adapter is enough: the battery charges at +%.1f W";
 "Подключено, но не заряжается: оптимизированная зарядка или лимит заряда в настройках." = "Plugged in but not charging: optimized charging or a charge limit in Settings.";
@@ -70,20 +66,12 @@
 
 /* What heats the Mac */
 "графика тратит %.0f Вт" = "GPU draws %.0f W";
-"процессор загружен на %ld%%" = "CPU at %ld%%";
 "быстрая зарядка +%.0f Вт" = "fast charging +%.0f W";
-"macOS уже снижает частоты" = "macOS is already lowering clock speeds";
 "Нагрузка маленькая — сейчас ничего не греет" = "Load is low — nothing is heating the Mac now";
-"Греет: %@" = "Heating: %@";
 "Что греет Mac" = "What heats the Mac";
-"нагрев = доля от максимума CPU и GPU (%@ Вт); ≈ — оценка" = "heat = share of the CPU and GPU maximum (%@ W); ≈ is an estimate";
-"%@ — %@ от максимума" = "%@ — %@ of the maximum";
-"%@ — %@ нагрева" = "%@ — %@ of the heat";
 "нагрев = доля в общей нагрузке CPU и GPU; ≈ — оценка" = "heat = share of the total CPU and GPU load; ≈ is an estimate";
-"нагрев = доля от наибольшей замеченной нагрузки (%@ Вт); ≈ — оценка" = "heat = share of the highest load seen (%@ W); ≈ is an estimate";
 "От максимума" = "Of maximum";
 "От общей" = "Of total";
-"От максимума: какую часть полной мощности CPU и GPU берёт процесс. От общей: его доля в текущей нагрузке, вместе 100%." = "Of maximum: how much of the full CPU and GPU power the process takes. Of total: its share of the current load, adding up to 100%.";
 "Нагрев процессов" = "Process heat";
 "Доля от максимума Mac" = "Share of the Mac's maximum";
 "Доля от общей нагрузки" = "Share of the total load";
@@ -102,13 +90,10 @@
 "%.1f ГБ" = "%.1f GB";
 "%.0f МБ" = "%.0f MB";
 "процессов: %ld" = "processes: %ld";
-"Столбцы" = "Columns";
 "Найти в интернете, что это" = "Search the web for what this is";
-"Найти в интернете" = "Search the web";
 "Показать в Finder" = "Show in Finder";
 "Завершить «%@»" = "Quit “%@”";
 "Завершить" = "Quit";
-"Выберите процесс в списке, чтобы завершить его. Клик по заголовку столбца меняет сортировку." = "Select a process in the list to quit it. Click a column header to change the sorting.";
 "«%@» — системный процесс, завершить его можно только с правами администратора." = "“%@” is a system process; only an administrator can quit it.";
 "процесс macOS что это и почему грузит систему" = "process macOS what is it and why is it using so much CPU";
 
@@ -153,7 +138,6 @@
 "%ld ч %ld мин" = "%ld h %ld min";
 "%ld мин" = "%ld min";
 "%@ ГБ" = "%@ GB";
-"Проверки обновляются каждые 5 секунд, пока открыта эта вкладка." = "Checks refresh every 5 seconds while this tab is open.";
 "Остановить всё найденное" = "Stop everything found";
 "Остановить всё найденное?" = "Stop everything found?";
 "Остановить" = "Stop";
@@ -203,7 +187,100 @@
 /* Load explanation */
 "≈%.1f ядра" = "≈%.1f cores";
 "По шкале одного ядра: %.1f%%." = "On the single-core scale: %.1f%%.";
-"нагрев — доля учтённой энергии CPU и GPU, не загрузка CPU; ≈ — оценка" = "heat is a share of accounted CPU and GPU energy, not CPU utilization; ≈ means estimated";
-"CPU всего: %@ · в показанных строках: %@ · во всей выборке: %@" = "Total CPU: %@ · displayed rows: %@ · entire sample: %@";
-"Строк: %ld из %ld" = "Rows: %ld of %ld";
-"Общий CPU включает все процессы. Список ограничен 120 процессами и 40 строками; доли округлены, показания разных источников могут немного расходиться. Нажмите CPU, чтобы сортировать по загрузке процессора." = "Total CPU includes all processes. The list is limited to 120 processes and 40 rows; values are rounded and different sources may differ slightly. Click CPU to sort by processor usage.";
+
+/* Sections of the main window: each track adds its lines above its own end marker. */
+
+/* Overview */
+"собираю данные…" = "collecting data…";
+"Греет" = "Heating";
+"%@ от максимума Mac" = "%@ of the Mac's maximum";
+"%@ от общей нагрузки" = "%@ of the total load";
+"Хватает" = "Enough";
+"Не хватает" = "Not enough";
+"От батареи" = "On battery";
+"запас %.0f Вт" = "%.0f W to spare";
+"из батареи %.1f Вт" = "%.1f W from the battery";
+"нет данных о питании" = "no power data";
+"3 мин назад" = "3 min ago";
+"сейчас" = "now";
+"диапазон %.0f–%.0f°" = "range %.0f–%.0f°";
+"Все процессы" = "All processes";
+"Своп" = "Swap";
+"Норма" = "Normal";
+"Боковая панель" = "Sidebar";
+"Показать или скрыть боковую панель" = "Show or hide the sidebar";
+"процессор загружен на %ld%%" = "CPU at %ld%%";
+"Греется" = "Warming up";
+"Горячо" = "Hot";
+"Очень горячо" = "Very hot";
+"Mac берёт %.0f Вт" = "Mac draws %.0f W";
+/* end Overview */
+
+/* Cooling */
+"CPU, самое горячее ядро" = "CPU, hottest core";
+"CPU, пик за 5 с" = "CPU, 5 s peak";
+"CPU в среднем" = "CPU average";
+"Корпус" = "Chassis";
+"без вентиляторов: macOS охлаждает снижением частот" = "no fans: macOS cools the Mac by lowering clock speeds";
+/* end Cooling */
+
+/* Processes */
+"Выберите процесс" = "Select a process";
+"Что это?" = "What Is This?";
+"Вид" = "View";
+"Столбцы" = "Columns";
+"Нагрев — сколько ватт процесс тратит на CPU и GPU. Процент — его доля в текущей нагрузке CPU и GPU, вместе 100%; это не загрузка CPU. Знак ≈ — оценка." = "Heat is how many watts a process spends on the CPU and GPU. The percentage is its share of the current CPU and GPU load, adding up to 100%; it is not CPU utilization. ≈ means estimated.";
+"Нагрев — сколько ватт процесс тратит на CPU и GPU. Процент — доля от наибольшей нагрузки, замеченной на этом Mac (%@ Вт). Знак ≈ — оценка." = "Heat is how many watts a process spends on the CPU and GPU. The percentage is a share of the highest load seen on this Mac (%@ W). ≈ means estimated.";
+"Нагрев — сколько ватт процесс тратит на CPU и GPU. Процент — доля от максимума этого Mac (%@ Вт). Знак ≈ — оценка." = "Heat is how many watts a process spends on the CPU and GPU. The percentage is a share of this Mac’s maximum (%@ W). ≈ means estimated.";
+"Показаны 40 самых горячих строк." = "Showing the 40 hottest rows.";
+/* end Processes */
+
+/* Power */
+"Mac потребляет" = "Mac draws";
+"Батарея %lld%%" = "Battery %lld%%";
+"Адаптер загружен на %lld%%" = "Adapter at %lld%% load";
+"Источник и порты" = "Source and ports";
+"от батареи" = "from the battery";
+"Устройств USB-C нет" = "No USB-C devices";
+"Осталось" = "Time left";
+"Температура" = "Temperature";
+"Нет данных о батарее" = "No battery data";
+/* end Power */
+
+/* Advice */
+"В этом разделе проверки идут каждые 5 секунд. Пока окно открыто, число находок в боковой панели обновляется раз в минуту." = "In this section the checks run every 5 seconds. While the window is open, the number of findings in the sidebar updates once a minute.";
+/* end Advice */
+
+/* Energy mode */
+"Режим энергопотребления от адаптера" = "Energy mode on the adapter";
+"Чтобы сберечь батарею, включите режим энергосбережения от адаптера" = "To save the battery, turn on Low Power on the adapter";
+"Включить энергосбережение" = "Turn On Low Power";
+"Сейчас: %@" = "Now: %@";
+"Вернуть «Автоматически»" = "Back to Automatic";
+"macOS спросит пароль администратора; HeatMonitor его не видит и не хранит." = "macOS asks for the administrator password; HeatMonitor never sees or stores it.";
+"Ограничивает кабель: он рассчитан на %ld Вт (%ld В · %ld А). Для большей мощности нужен кабель USB-C 240 Вт (EPR)." = "The cable limits it: it is rated for %ld W (%ld V · %ld A). More power needs a 240 W (EPR) USB-C cable.";
+"Адаптер %ld Вт, получено %ld Вт: ограничивает кабель, нужен USB-C 240 Вт (EPR)." = "%ld W adapter, %ld W received: the cable limits it, a 240 W (EPR) USB-C cable is needed.";
+"Адаптер даёт %ld Вт: слабый для такой нагрузки." = "The adapter gives %ld W: too weak for this load.";
+"Адаптер слабый для такой нагрузки." = "The adapter is too weak for this load.";
+"автоматически" = "Automatic";
+"энергосбережение" = "Low Power";
+"высокая производительность" = "High Power";
+"HeatMonitor меняет режим энергопотребления от адаптера." = "HeatMonitor is changing the energy mode on the adapter.";
+"Не удалось сменить режим." = "Could not change the mode.";
+/* end Energy mode */
+
+/* Limiter */
+"Ограничитель" = "Limiter";
+"Ограничивать процессы из списка" = "Limit listed processes";
+"Когда не хватает питания от адаптера" = "When the adapter falls short";
+"Когда CPU горячее %.0f°" = "When the CPU is hotter than %.0f°";
+"Порог температуры: %.0f°" = "Temperature threshold: %.0f°";
+"Ждать перед включением и снятием: %.0f мин" = "Wait before engaging and releasing: %.0f min";
+"Процессы, в команде которых есть строка из списка (по одной на строку), переводятся в фоновый приоритет: медленнее, но не останавливаются. Только ваши процессы. После снятия нагрузки приоритет возвращается." = "Processes whose command contains a line from the list (one per line) move to background priority: slower, never stopped. Only your processes. Priority returns once the load is gone.";
+"Ограничитель снят" = "Limiter released";
+"Процессы из списка вернулись к обычному приоритету." = "Listed processes are back at normal priority.";
+"Питания не хватает — ограничитель включён" = "Power falls short — limiter on";
+"Mac перегрет — ограничитель включён" = "Mac is hot — limiter on";
+"Процессов в фоновом приоритете: %ld." = "Processes at background priority: %ld.";
+"Режим энергосбережения от адаптера включается в разделе «Питание»." = "Low Power on the adapter is in the Power section.";
+/* end Limiter */

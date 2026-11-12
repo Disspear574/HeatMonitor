@@ -112,6 +112,7 @@ struct PortLink: Equatable {
     let supplyW: Int?
     let powersMac: Bool
     var budgetW: Double? = nil
+    var cable: CableRating? = nil
 }
 
 func deviceName(vendor: String?, model: String) -> String {

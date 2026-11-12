@@ -383,6 +383,8 @@ enum SystemInfo {
         let systemW: Double?
         let adapterInW: Double?
         let adapterMaxW: Int?
+        // From the adapter's own name ("140W USB-C Power Adapter"); third-party adapters give none.
+        let adapterRatedW: Int?
         let minutesLeft: Int?
         let cycles: Int?
         let healthPercent: Int?
@@ -431,7 +433,8 @@ enum SystemInfo {
             // A supply's USB and PD names are its hub and controller; a port with no PD partner reports "Macintosh".
             let name = supply.watts != nil ? tb : tb ?? product ?? prop("SOPMfgString") as? String
             links.append(PortLink(type: type, name: name, transports: prop("TransportsActive") as? [String] ?? [],
-                                  supplyW: supply.watts, powersMac: supply.selected, budgetW: usbBudgetW(s)))
+                                  supplyW: supply.watts, powersMac: supply.selected, budgetW: usbBudgetW(s),
+                                  cable: supply.watts != nil ? cable(s) : nil))
         }
         return links
     }
@@ -495,6 +498,23 @@ enum SystemInfo {
         return (watts, selected)
     }
 
+    // The cable's e-marker answers as SOP' under the port; macOS leaves its VDOs empty when it has not asked.
+    private static func cable(_ port: io_service_t) -> CableRating? {
+        var it: io_iterator_t = 0
+        guard IORegistryEntryCreateIterator(port, kIOServicePlane, IOOptionBits(kIORegistryIterateRecursively), &it) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(it) }
+        while case let e = IOIteratorNext(it), e != 0 {
+            defer { IOObjectRelease(e) }
+            func prop(_ k: String) -> Any? { IORegistryEntryCreateCFProperty(e, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() }
+            guard prop("ComponentName") as? String == "SOP'",
+                  let vdos = (prop("Metadata") as? [String: Any])?["VDOs"] as? [Data], !vdos.isEmpty else { continue }
+            return cableRating(vdos: vdos.map { d in
+                d.count >= 4 ? UInt32(littleEndian: d.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }) : 0
+            })
+        }
+        return nil
+    }
+
     private static func forEachChild(_ entry: io_registry_entry_t, _ body: (io_registry_entry_t, String) -> Void) {
         var it: io_iterator_t = 0
         guard IORegistryEntryGetChildIterator(entry, kIOServicePlane, &it) == KERN_SUCCESS else { return }
@@ -546,6 +566,7 @@ enum SystemInfo {
         var systemW = liveSystem ?? watts(telemetry["SystemLoad"]).flatMap { $0 > 0 ? $0 : nil }
         if systemW == nil, let b = batteryW { systemW = (adapterIn ?? 0) - b }
         let left = ps?.minutesToEmpty ?? prop("TimeRemaining") as? Int
+        let details = prop("AdapterDetails") as? [String: Any]
         // Capacity keys sit in BatteryData on some models and at the top level on others.
         let data = prop("BatteryData") as? [String: Any] ?? [:]
         func capacity(_ k: String) -> Int? { ((data[k] ?? prop(k)) as? Int).flatMap { $0 > 0 ? $0 : nil } }
@@ -561,7 +582,8 @@ enum SystemInfo {
                        batteryW: batteryW,
                        systemW: systemW,
                        adapterInW: adapterIn,
-                       adapterMaxW: plugged ? (ps?.adapterWatts ?? (prop("AdapterDetails") as? [String: Any])?["Watts"] as? Int) : nil,
+                       adapterMaxW: plugged ? (ps?.adapterWatts ?? details?["Watts"] as? Int) : nil,
+                       adapterRatedW: plugged ? ratedWatts(adapterName: details?["Name"] as? String) : nil,
                        minutesLeft: left.flatMap { $0 > 0 && $0 < 65535 ? $0 : nil },
                        cycles: prop("CycleCount") as? Int,
                        healthPercent: health)

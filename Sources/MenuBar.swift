@@ -196,6 +196,10 @@ struct MenuPanel: View {
                     if !usage.isEmpty {
                         Text(usage.joined(separator: " · ")).foregroundStyle(.secondary).monospacedDigit()
                     }
+                    if line.short, let cause = powerLimit(b, ports: m.ports) {
+                        Text(powerCauseText(cause)).font(.system(size: 11)).foregroundStyle(TempLevel.hot.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 if let supply {
                     Text(supplyText(supply)).font(.system(size: 11)).foregroundStyle(.secondary)

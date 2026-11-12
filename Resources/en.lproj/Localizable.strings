@@ -258,6 +258,7 @@
 "Сейчас: %@" = "Now: %@";
 "Вернуть «Автоматически»" = "Back to Automatic";
 "macOS спросит пароль администратора; HeatMonitor его не видит и не хранит." = "macOS asks for the administrator password; HeatMonitor never sees or stores it.";
+"Ограничивает кабель: он рассчитан на %ld Вт (%ld В · %ld А). Для большей мощности нужен кабель USB-C 240 Вт (EPR)." = "The cable limits it: it is rated for %ld W (%ld V · %ld A). More power needs a 240 W (EPR) USB-C cable.";
 "Адаптер %ld Вт, получено %ld Вт: ограничивает кабель, нужен USB-C 240 Вт (EPR)." = "%ld W adapter, %ld W received: the cable limits it, a 240 W (EPR) USB-C cable is needed.";
 "Адаптер даёт %ld Вт: слабый для такой нагрузки." = "The adapter gives %ld W: too weak for this load.";
 "Адаптер слабый для такой нагрузки." = "The adapter is too weak for this load.";

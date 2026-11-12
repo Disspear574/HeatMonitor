@@ -30,8 +30,10 @@ struct PowerView: View {
 
     private func energyCard(_ b: SystemInfo.Battery) -> some View {
         let short = b.batteryW.map { adapterShort(batteryW: $0, adapterInW: b.adapterInW, adapterMaxW: b.adapterMaxW) } ?? false
+        let supply = m.ports.first { $0.powersMac }
         let tips = powerTips(plugged: b.plugged, short: short, acMode: energy.acMode,
-                             ratedW: ratedWatts(adapterName: energy.adapterName), negotiatedW: energy.negotiatedW ?? b.adapterMaxW)
+                             ratedW: ratedWatts(adapterName: energy.adapterName), negotiatedW: energy.negotiatedW ?? b.adapterMaxW,
+                             cable: supply?.cable, magSafe: supply?.type.hasPrefix("MagSafe") ?? false)
         return VStack(alignment: .leading, spacing: 8) {
             CardTitle("Режим энергопотребления от адаптера")
             ForEach(Array(tips.enumerated()), id: \.offset) { _, tip in
@@ -40,7 +42,7 @@ struct PowerView: View {
                     Label("Чтобы сберечь батарею, включите режим энергосбережения от адаптера", systemImage: "leaf")
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(TempLevel.hot.text)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(causeText(cause)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(powerCauseText(cause)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Button("Включить энергосбережение") { energy.set(.low) }
                         .buttonStyle(.borderedProminent).disabled(energy.busy)
                 }
@@ -60,17 +62,6 @@ struct PowerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
-    }
-
-    private func causeText(_ cause: PowerCause) -> String {
-        switch cause {
-        case let .cable(rated, got):
-            return String(format: tr("Адаптер %ld Вт, получено %ld Вт: ограничивает кабель, нужен USB-C 240 Вт (EPR)."), rated, got)
-        case let .weakAdapter(got?):
-            return String(format: tr("Адаптер даёт %ld Вт: слабый для такой нагрузки."), got)
-        case .weakAdapter(nil):
-            return tr("Адаптер слабый для такой нагрузки.")
-        }
     }
 
     private func modeWord(_ mode: EnergyMode?) -> String {
@@ -103,6 +94,12 @@ struct PowerView: View {
                     .padding(.top, 20).padding(.bottom, 6)
                 Text("Адаптер загружен на \(Int((load * 100).rounded()))%")
                     .foregroundStyle(.secondary).monospacedDigit()
+            }
+            if let cause = powerLimit(b, ports: m.ports), !(adapterShortNow(b) && energy.acMode != .low) {
+                Label(powerCauseText(cause), systemImage: cause.isCable ? "cable.connector" : "powerplug")
+                    .foregroundStyle(adapterShortNow(b) ? TempLevel.hot.text : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 10)
             }
         }
         .card()
@@ -216,5 +213,39 @@ private struct ValueRow: View {
             Text(value).monospacedDigit().multilineTextAlignment(.trailing).lineLimit(2)
         }
         .padding(.vertical, 5)
+    }
+}
+
+private func adapterShortNow(_ b: SystemInfo.Battery) -> Bool {
+    b.batteryW.map { adapterShort(batteryW: $0, adapterInW: b.adapterInW, adapterMaxW: b.adapterMaxW) } ?? false
+}
+
+// The supply port tells USB-C from MagSafe and carries the cable's e-marker.
+func powerLimit(_ b: SystemInfo.Battery, ports: [PortLink]) -> PowerCause? {
+    let supply = ports.first { $0.powersMac }
+    return powerLimit(plugged: b.plugged, short: adapterShortNow(b), ratedW: b.adapterRatedW, negotiatedW: b.adapterMaxW,
+                      cable: supply?.cable, magSafe: supply?.type.hasPrefix("MagSafe") ?? false)
+}
+
+extension PowerCause {
+    var isCable: Bool {
+        switch self {
+        case .cableRated, .cable: true
+        case .weakAdapter: false
+        }
+    }
+}
+
+func powerCauseText(_ cause: PowerCause) -> String {
+    switch cause {
+    case let .cableRated(c):
+        return String(format: tr("Ограничивает кабель: он рассчитан на %ld Вт (%ld В · %ld А). Для большей мощности нужен кабель USB-C 240 Вт (EPR)."),
+                      c.watts, c.volts, c.amps)
+    case let .cable(rated, got):
+        return String(format: tr("Адаптер %ld Вт, получено %ld Вт: ограничивает кабель, нужен USB-C 240 Вт (EPR)."), rated, got)
+    case let .weakAdapter(got?):
+        return String(format: tr("Адаптер даёт %ld Вт: слабый для такой нагрузки."), got)
+    case .weakAdapter(nil):
+        return tr("Адаптер слабый для такой нагрузки.")
     }
 }

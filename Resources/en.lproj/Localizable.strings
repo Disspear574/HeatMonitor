@@ -210,9 +210,29 @@
 /* Sections of the main window: each track adds its lines above its own end marker. */
 
 /* Overview */
+"собираю данные…" = "collecting data…";
+"Греет" = "Heating";
+"%@ от максимума Mac" = "%@ of the Mac's maximum";
+"%@ от общей нагрузки" = "%@ of the total load";
+"Хватает" = "Enough";
+"Не хватает" = "Not enough";
+"От батареи" = "On battery";
+"запас %.0f Вт" = "%.0f W to spare";
+"из батареи %.1f Вт" = "%.1f W from the battery";
+"нет данных о питании" = "no power data";
+"3 мин назад" = "3 min ago";
+"сейчас" = "now";
+"диапазон %.0f–%.0f°" = "range %.0f–%.0f°";
+"Все процессы" = "All processes";
+"Своп" = "Swap";
 /* end Overview */
 
 /* Cooling */
+"CPU, самое горячее ядро" = "CPU, hottest core";
+"CPU, пик за 5 с" = "CPU, 5 s peak";
+"CPU в среднем" = "CPU average";
+"Корпус" = "Chassis";
+"без вентиляторов: macOS охлаждает снижением частот" = "no fans: macOS cools the Mac by lowering clock speeds";
 /* end Cooling */
 
 /* Processes */

@@ -3,12 +3,14 @@ import SwiftUI
 /// Power section: adapter verdict, power flow, source and ports, battery.
 struct PowerView: View {
     var m: Monitor
+    @StateObject private var energy = EnergyModeModel()
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.gap) {
                 if let b = m.battery {
                     flowCard(b)
+                    if b.plugged { energyCard(b) }
                     HStack(alignment: .top, spacing: Theme.gap) {
                         sourceCard
                         batteryCard(b)
@@ -20,6 +22,63 @@ struct PowerView: View {
                 }
             }
             .padding(Theme.edge)
+        }
+        .onAppear { energy.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in energy.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in energy.refresh() }
+    }
+
+    private func energyCard(_ b: SystemInfo.Battery) -> some View {
+        let short = b.batteryW.map { adapterShort(batteryW: $0, adapterInW: b.adapterInW, adapterMaxW: b.adapterMaxW) } ?? false
+        let tips = powerTips(plugged: b.plugged, short: short, acMode: energy.acMode,
+                             ratedW: ratedWatts(adapterName: energy.adapterName), negotiatedW: energy.negotiatedW ?? b.adapterMaxW)
+        return VStack(alignment: .leading, spacing: 8) {
+            CardTitle("Режим энергопотребления от адаптера")
+            ForEach(Array(tips.enumerated()), id: \.offset) { _, tip in
+                switch tip {
+                case .lowPowerOnAdapter(let cause):
+                    Label("Чтобы сберечь батарею, включите режим энергосбережения от адаптера", systemImage: "leaf")
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(TempLevel.hot.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(causeText(cause)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button("Включить энергосбережение") { energy.set(.low) }
+                        .buttonStyle(.borderedProminent).disabled(energy.busy)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Сейчас: \(modeWord(energy.acMode))").lineLimit(2)
+                Spacer(minLength: 0)
+                if let mode = energy.acMode, mode != .automatic {
+                    Button("Вернуть «Автоматически»") { energy.set(.automatic) }.disabled(energy.busy)
+                }
+            }
+            if let error = energy.error {
+                Text(error).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("macOS спросит пароль администратора; HeatMonitor его не видит и не хранит.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
+    private func causeText(_ cause: PowerCause) -> String {
+        switch cause {
+        case let .cable(rated, got):
+            return String(format: tr("Адаптер %ld Вт, получено %ld Вт: ограничивает кабель, нужен USB-C 240 Вт (EPR)."), rated, got)
+        case let .weakAdapter(got?):
+            return String(format: tr("Адаптер даёт %ld Вт: слабый для такой нагрузки."), got)
+        case .weakAdapter(nil):
+            return tr("Адаптер слабый для такой нагрузки.")
+        }
+    }
+
+    private func modeWord(_ mode: EnergyMode?) -> String {
+        switch mode {
+        case .automatic: tr("автоматически")
+        case .low: tr("энергосбережение")
+        case .high: tr("высокая производительность")
+        case nil: "—"
         }
     }
 

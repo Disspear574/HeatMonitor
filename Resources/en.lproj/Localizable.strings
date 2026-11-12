@@ -241,3 +241,20 @@
 /* Advice */
 "В этом разделе проверки идут каждые 5 секунд. Пока окно открыто, число находок в боковой панели обновляется раз в минуту." = "In this section the checks run every 5 seconds. While the window is open, the number of findings in the sidebar updates once a minute.";
 /* end Advice */
+
+/* Energy mode */
+"Режим энергопотребления от адаптера" = "Energy mode on the adapter";
+"Чтобы сберечь батарею, включите режим энергосбережения от адаптера" = "To save the battery, turn on Low Power on the adapter";
+"Включить энергосбережение" = "Turn On Low Power";
+"Сейчас: %@" = "Now: %@";
+"Вернуть «Автоматически»" = "Back to Automatic";
+"macOS спросит пароль администратора; HeatMonitor его не видит и не хранит." = "macOS asks for the administrator password; HeatMonitor never sees or stores it.";
+"Адаптер %ld Вт, получено %ld Вт: ограничивает кабель, нужен USB-C 240 Вт (EPR)." = "%ld W adapter, %ld W received: the cable limits it, a 240 W (EPR) USB-C cable is needed.";
+"Адаптер даёт %ld Вт: слабый для такой нагрузки." = "The adapter gives %ld W: too weak for this load.";
+"Адаптер слабый для такой нагрузки." = "The adapter is too weak for this load.";
+"автоматически" = "Automatic";
+"энергосбережение" = "Low Power";
+"высокая производительность" = "High Power";
+"HeatMonitor меняет режим энергопотребления от адаптера." = "HeatMonitor is changing the energy mode on the adapter.";
+"Не удалось сменить режим." = "Could not change the mode.";
+/* end Energy mode */

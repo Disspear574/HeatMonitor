@@ -95,9 +95,11 @@ func hidCPU(_ sensors: [String: Double]) -> Double? {
     return tdie.max() ?? sensors.filter { $0.key.contains("ACC MTR") }.values.max()
 }
 
-// A battery draw on the adapter is a shortage only near the adapter's rating; at 100 % macOS holds the charge and the battery reads about −1 W.
+// At 100 % macOS holds the charge and the battery reads about −1 W; a bigger draw is a shortage even below the
+// adapter's rating, because the adapter or cable may deliver less than it advertises.
 func adapterShort(batteryW: Double?, adapterInW: Double?, adapterMaxW: Int?) -> Bool {
     guard let v = batteryW, v < -0.5 else { return false }
+    if v <= -3 { return true }
     guard let inW = adapterInW, let max = adapterMaxW else { return true }
     return inW >= Double(max) * 0.9
 }
@@ -196,10 +198,6 @@ enum TempLevel: Int, CaseIterable {
     }
 
     static func optional(_ t: Double?) -> TempLevel? { t.map(TempLevel.init) }
-
-    var wordKey: String {
-        switch self { case .ok: "Норма"; case .warm: "Тепло"; case .hot: "Горячо"; case .crit: "Критично" }
-    }
 }
 
 func scaleFraction(_ t: Double, from lo: Double = 30, to hi: Double = 110) -> Double {
@@ -220,11 +218,12 @@ enum PowerVerdict: Equatable {
 }
 
 /// A heat cause the process list does not show.
-enum HeatCause: Equatable { case graphics(Double), fastCharge(Double) }
+enum HeatCause: Equatable { case cpuLoad(Double), graphics(Double), fastCharge(Double) }
 
 // GPU busy percent reads high at idle clocks, so only real power counts.
-func extraHeatCauses(gpuWatts: Double?, batteryW: Double?) -> [HeatCause] {
+func extraHeatCauses(cpuUsage: Double, gpuWatts: Double?, batteryW: Double?) -> [HeatCause] {
     var out: [HeatCause] = []
+    if cpuUsage >= 60 { out.append(.cpuLoad(cpuUsage)) }
     if let g = gpuWatts, g >= 5 { out.append(.graphics(g)) }
     if let b = batteryW, b > 15 { out.append(.fastCharge(b)) }
     return out

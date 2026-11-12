@@ -1197,23 +1197,6 @@ func thermalText(_ s: ProcessInfo.ThermalState) -> (String, Color) {
     }
 }
 
-/// Digits slide up when the value changes; no blur, so it stays cheap. Static under Reduce Motion.
-struct RollingText: View {
-    let value: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(value.enumerated()), id: \.offset) { _, ch in
-                Text(String(ch))
-                    .id(ch)
-                    .transition(.push(from: .bottom))
-            }
-        }
-        .clipped()
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: value)
-    }
-}
-
 struct Sparkline: NSViewRepresentable {
     let values: [Double]
     static let capacity = 180
@@ -1300,21 +1283,6 @@ final class SparkView: NSView {
         }
         if let last = points.last { path.addLine(to: last) }
         return path
-    }
-}
-
-struct Stat: View {
-    let title: LocalizedStringKey
-    let value: String
-    var color: Color = .primary
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            // Plain text: rolling digits here re-rendered the window every second.
-            Text(value).font(.system(.body, design: .rounded).weight(.medium).monospacedDigit())
-                .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -1588,7 +1556,8 @@ final class Windows {
 
     func showMain(_ m: Monitor) {
         if main == nil {
-            let w = window(MainView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 900, height: 600), autosave: "main") { [weak self] in
+            let w = window(MainView(m: m), title: tr("Диспетчер тепла"), size: NSSize(width: 900, height: 600),
+                           minSize: NSSize(width: 760, height: 520), autosave: "main") { [weak self] in
                 self?.main = nil
                 self?.setMainVisible(false)
             }
@@ -1596,6 +1565,11 @@ final class Windows {
             w.styleMask.insert(.fullSizeContentView)
             w.toolbarStyle = .unified
             (w.contentViewController as? NSHostingController<MainView>)?.sceneBridgingOptions = [.title, .toolbars]
+            // A frame saved while the window ran off screen comes back at the default size.
+            if let screen = (w.screen ?? NSScreen.main)?.visibleFrame, !screen.contains(w.frame) {
+                w.setContentSize(NSSize(width: 900, height: 600))
+                w.center()
+            }
             observe(w, NSWindow.didChangeOcclusionStateNotification) { [weak self] w in
                 self?.setMainVisible(w.isVisible && w.occlusionState.contains(.visible), settle: true)
             }
@@ -1608,7 +1582,8 @@ final class Windows {
 
     func showSensors() {
         if sensors == nil {
-            sensors = window(SensorsView(), title: tr("Все датчики"), size: NSSize(width: 480, height: 640), autosave: "sensors") { [weak self] in
+            sensors = window(SensorsView(), title: tr("Все датчики"), size: NSSize(width: 480, height: 640),
+                             minSize: NSSize(width: 420, height: 500), autosave: "sensors") { [weak self] in
                 self?.sensors = nil
             }
         }
@@ -1643,13 +1618,16 @@ final class Windows {
         observers[ObjectIdentifier(w), default: []].append(token)
     }
 
-    private func window<V: View>(_ view: V, title: String, size: NSSize, autosave: String, onClose: @escaping @MainActor () -> Void) -> NSWindow {
+    private func window<V: View>(_ view: V, title: String, size: NSSize, minSize: NSSize, autosave: String,
+                                 onClose: @escaping @MainActor () -> Void) -> NSWindow {
         let host = NSHostingController(rootView: view)
-        host.sizingOptions = [.minSize]
+        // A fixed minimum: a minimum taken from SwiftUI grew with wrapped text and pushed the window off screen.
+        host.sizingOptions = []
         let w = NSWindow(contentViewController: host)
         w.title = title
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         w.isReleasedWhenClosed = false
+        w.contentMinSize = minSize
         w.setContentSize(size)
         w.setFrameAutosaveName(autosave)
         observe(w, NSWindow.willCloseNotification) { [weak self] w in

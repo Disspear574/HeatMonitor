@@ -7,9 +7,10 @@ struct MainView: View {
     @State private var section: WindowSection = .overview
     @StateObject private var advice = AdviceModel()
     @State private var onScreen = false
+    @State private var columns: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             List(WindowSection.allCases, selection: Binding(get: { section }, set: { if let s = $0 { section = s } })) { s in
                 SidebarRow(section: s, value: value(s))
                     .tag(s)
@@ -19,6 +20,18 @@ struct MainView: View {
             detail
                 .navigationTitle(tr(section.titleKey))
                 .background { shortcuts }
+                // A section without toolbar items would drop the window toolbar and push the window buttons out of the sidebar.
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Button {
+                            withAnimation { columns = columns == .detailOnly ? .all : .detailOnly }
+                        } label: {
+                            Label("Боковая панель", systemImage: "sidebar.left")
+                        }
+                        .keyboardShortcut("s", modifiers: [.control, .command])
+                        .help(tr("Показать или скрыть боковую панель"))
+                    }
+                }
         }
         .frame(minWidth: 760, minHeight: 520)
         .whileOnScreen(start: { onScreen = true; syncAdvice() }, stop: { onScreen = false; syncAdvice() })

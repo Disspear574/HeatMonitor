@@ -46,16 +46,18 @@ private struct VerdictCard: View {
     }
 
     private var heatRow: some View {
-        let level = TempLevel.optional(m.cpuHot)
-        let detail = m.cpuHot.map { fmt($0) + " · " + thermalText(m.thermal).0.localizedLowercase } ?? tr("собираю данные…")
-        return VerdictRow(label: "Тепло", word: level?.word ?? "—", wordColor: level?.text ?? .secondary, detail: detail) {
+        let state = tempWord(m.cpuHot, m.thermal)
+        let detail = m.cpuHot.map { fmt($0) } ?? tr("собираю данные…")
+        return VerdictRow(label: "Тепло", word: m.cpuHot == nil ? "—" : state.0, wordColor: m.cpuHot == nil ? .secondary : state.1,
+                          detail: detail) {
             open(.cooling)
         }
     }
 
     private var sourceRow: some View {
-        let causes = extraHeatCauses(gpuWatts: m.gpuWatts, batteryW: m.battery?.batteryW).map { cause in
+        let causes = extraHeatCauses(cpuUsage: m.cpuUsage, gpuWatts: m.gpuWatts, batteryW: m.battery?.batteryW).map { cause in
             switch cause {
+            case .cpuLoad(let usage): String(format: tr("процессор загружен на %ld%%"), Int(usage))
             case .graphics(let watts): String(format: tr("графика тратит %.0f Вт"), watts)
             case .fastCharge(let watts): String(format: tr("быстрая зарядка +%.0f Вт"), watts)
             }
@@ -104,8 +106,8 @@ private struct VerdictRow: View {
     }
 }
 
-/// Power verdict as a coloured word and a detail, shared by the verdict row and the small card.
-private struct PowerLine {
+/// Power verdict as a coloured word and a detail, shared by the overview and the menu bar panel.
+struct PowerLine {
     let word: String
     let detail: String
     let color: Color
@@ -130,21 +132,23 @@ private struct PowerLine {
 /// Big CPU temperature, its band on the 30–110° scale and the last 3 minutes; Cooling shows it too.
 struct TemperatureCard: View {
     var m: Monitor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let level = TempLevel.optional(m.cpuHot)
-        let thermal = thermalText(m.thermal)
+        let state = tempWord(m.cpuHot, m.thermal)
         VStack(alignment: .leading, spacing: 0) {
             CardTitle("Температура CPU").padding(.bottom, 8)
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                RollingText(value: fmt(m.cpuHot))
+                Text(fmt(m.cpuHot))
                     .font(.system(size: 48, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(level?.text ?? .secondary)
-                Text(level?.word ?? tr("собираю данные…"))
+                    .contentTransition(.numericText(value: m.cpuHot ?? 0))
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: m.cpuHot)
+                Text(m.cpuHot == nil ? tr("собираю данные…") : state.0)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(level?.text ?? .secondary)
+                    .foregroundStyle(m.cpuHot == nil ? .secondary : state.1)
             }
-            Text(thermal.0).foregroundStyle(thermal.1).padding(.top, 4)
             TempScale(t: m.cpuHot, peak: m.cpuPeak).padding(.top, 14)
             TempTicks().padding(.top, 4)
             Sparkline(values: m.history)
@@ -193,7 +197,7 @@ private struct TempScale: View {
                 }
                 if let t {
                     RoundedRectangle(cornerRadius: 2).fill(.primary).frame(width: 4, height: 16)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(Theme.cardHighlight).padding(-2))
+                        .background(RoundedRectangle(cornerRadius: 3).fill(Color(nsColor: .windowBackgroundColor)).padding(-2))
                         .offset(x: min(max(width * scaleFraction(t) - 2, 0), width - 4))
                 }
             }
@@ -370,5 +374,21 @@ extension View {
     // Cards in one row take the row's full height, so their bottoms line up.
     func stretchedCard() -> some View {
         frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).card()
+    }
+}
+
+// Word and colour follow the temperature like the number and the scale; macOS throttling, when reported, names it instead.
+func tempWord(_ t: Double?, _ s: ProcessInfo.ThermalState) -> (String, Color) {
+    guard let t else { return (tr("собираю данные…"), .secondary) }
+    let level = TempLevel(t)
+    if s == .serious || s == .critical {
+        let floor: TempLevel = s == .critical ? .crit : .hot
+        return (thermalText(s).0, (level.rawValue >= floor.rawValue ? level : floor).text)
+    }
+    switch level {
+    case .ok: return (tr("Норма"), level.text)
+    case .warm: return (tr("Греется"), level.text)
+    case .hot: return (tr("Горячо"), level.text)
+    case .crit: return (tr("Очень горячо"), level.text)
     }
 }

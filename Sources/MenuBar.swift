@@ -54,8 +54,21 @@ final class StatusController: NSObject, NSPopoverDelegate {
 
     @objc private func openMain() { Windows.shared.showMain(monitor) }
 
-    func popoverDidShow(_ n: Notification) { onPanel(true) }
-    func popoverDidClose(_ n: Notification) { onPanel(false) }
+    private var outsideClicks: Any?
+
+    // A transient popover in an app without a Dock icon never sees clicks in other apps, so those are watched here.
+    func popoverDidShow(_ n: Notification) {
+        onPanel(true)
+        outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.popover.performClose(nil) }
+        }
+    }
+
+    func popoverDidClose(_ n: Notification) {
+        onPanel(false)
+        if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
+        outsideClicks = nil
+    }
 
     private func refreshLabel(_ r: Readings) {
         guard let b = item.button else { return }
@@ -95,34 +108,24 @@ struct MenuPanel: View {
     @AppStorage(Pref.panelBlocks) private var blocksRaw = encodeSet(Set(PanelBlock.allCases))
     // Redraws the app list at once when the heat base changes.
     @AppStorage(Pref.heatBase) private var heatBaseRaw = HeatBase.auto.rawValue
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let blocks: Set<PanelBlock> = decodeSet(blocksRaw)
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             if blocks.contains(.temperature) { temperature }
             if blocks.contains(.sensors) {
-                row([("CPU средн.", fmt(m.cpuMean)), ("GPU", fmt(m.gpuHot)), ("SSD", fmt(m.ssd)), ("Батарея", fmt(m.batteryTemp))])
+                values([("CPU средн.", fmt(m.cpuMean), m.cpuMean.map(tempColor)), ("GPU", fmt(m.gpuHot), m.gpuHot.map(tempColor)),
+                        ("SSD", fmt(m.ssd), nil), ("Батарея", fmt(m.batteryTemp), nil)])
             }
             if blocks.contains(.load) {
-                let load: [(LocalizedStringKey, String)] = [("CPU", String(format: "%.0f%%", m.cpuUsage)), ("GPU", m.gpu.map { String(format: "%.0f%%", $0) } ?? "—"),
-                                                           ("Память", ofGB(m.memUsed + m.swap.used, SystemInfo.totalRAM))]
-                row(m.swap.used >= 50e6 ? load + [("Swap", String(format: tr("%@ ГБ"), gb(m.swap.used)))] : load, lastFills: true)
+                let load: [(LocalizedStringKey, String, Color?)] = [("CPU", pct(m.cpuUsage), nil), ("GPU", m.gpu.map { pct($0) } ?? "—", nil),
+                                                                   ("Память", String(format: tr("%@ ГБ"), gb(m.memUsed)), nil)]
+                values(m.swap.used >= 50e6 ? load + [("Своп", String(format: tr("%@ ГБ"), gb(m.swap.used)), nil)] : load)
             }
-            if blocks.contains(.power), let b = m.battery {
-                let s = adapterStatus(b)
-                Label(s.1, systemImage: s.0).font(.callout).foregroundStyle(s.2).fixedSize(horizontal: false, vertical: true)
-            }
-            if blocks.contains(.power), let p = powerSupplies(m.ports) {
-                Label(supplyText(p), systemImage: "powerplug")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            if blocks.contains(.power), case let devices = usbDevices(m.ports), !devices.isEmpty {
-                Label("На USB-C: \(devices.map(deviceText).joined(separator: ", "))", systemImage: "cable.connector")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+            if blocks.contains(.power) { power }
             if blocks.contains(.apps) { apps }
-            if blocks.contains(.fans), !m.fans.isEmpty { FanSwitch(m: m) }
-            Divider()
+            if blocks.contains(.fans), !m.fans.isEmpty { fans }
             HStack {
                 Button("Открыть окно") { close(); Windows.shared.showMain(m) }
                 Spacer()
@@ -131,51 +134,123 @@ struct MenuPanel: View {
                     .simultaneousGesture(TapGesture().onEnded { close(); NSApp.activate(ignoringOtherApps: true) })
                 Button("Выйти") { NSApp.terminate(nil) }
             }
+            .padding(.top, 4)
         }
-        .padding(14)
+        .padding(12)
         .frame(width: 340)
     }
 
     private var temperature: some View {
-        let state = thermalText(m.thermal)
+        let state = tempWord(m.cpuHot, m.thermal)
         return HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
+                CardTitle("Температура CPU")
                 Text(fmt(m.cpuHot))
-                    .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(tempColor(m.cpuHot ?? 0))
-                Text("пик за 5 с: \(fmt(m.cpuPeak))").font(.caption).foregroundStyle(.secondary)
-                Text(state.0).font(.caption).foregroundStyle(state.1).lineLimit(2)
+                    .font(.system(size: 36, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(TempLevel.optional(m.cpuHot)?.text ?? .secondary)
+                    .contentTransition(.numericText(value: m.cpuHot ?? 0))
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: m.cpuHot)
+                Text(m.cpuHot == nil ? tr("собираю данные…") : state.0)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(m.cpuHot == nil ? .secondary : state.1)
+                    .lineLimit(2)
+                Text("пик за 5 с: \(fmt(m.cpuPeak))").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
             }
-            .frame(width: 120, alignment: .leading)
-            Sparkline(values: m.history).frame(height: 44)
+            .frame(width: 128, alignment: .leading)
+            Sparkline(values: m.history).frame(height: 52)
         }
+        .card()
     }
 
-    private func row(_ items: [(LocalizedStringKey, String)], lastFills: Bool = false) -> some View {
-        HStack(spacing: 12) {
+    private func values(_ items: [(LocalizedStringKey, String, Color?)]) -> some View {
+        HStack(alignment: .top, spacing: 8) {
             ForEach(items.indices, id: \.self) { i in
-                if lastFills && i < items.count - 1 {
-                    Stat(title: items[i].0, value: items[i].1).fixedSize().frame(minWidth: 44, alignment: .leading)
-                } else {
-                    Stat(title: items[i].0, value: items[i].1).frame(maxWidth: lastFills ? .infinity : nil, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(items[i].0).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(items[i].1).font(.system(size: 13, weight: .medium)).monospacedDigit()
+                        .foregroundStyle(items[i].2 ?? .primary).lineLimit(1).minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .card()
+    }
+
+    @ViewBuilder private var power: some View {
+        let supply = powerSupplies(m.ports)
+        let devices = usbDevices(m.ports)
+        if m.battery != nil || supply != nil || !devices.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                CardTitle("Питание")
+                if let b = m.battery {
+                    let line = PowerLine(b)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if !line.word.isEmpty { Text(line.word).fontWeight(.semibold).foregroundStyle(line.color) }
+                        Text(line.detail).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    .lineLimit(1)
+                    let draw = b.systemW.map { String(format: tr("Mac берёт %.0f Вт"), $0) }
+                    let adapter = b.plugged ? b.adapterInW.flatMap { inW in
+                        b.adapterMaxW.map { String(format: tr("адаптер %.0f из %ld Вт"), inW, $0) }
+                    } : nil
+                    let usage = [draw, adapter].compactMap { $0 }
+                    if !usage.isEmpty {
+                        Text(usage.joined(separator: " · ")).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+                if let supply {
+                    Text(supplyText(supply)).font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !devices.isEmpty {
+                    Text("На USB-C: \(devices.map(deviceText).joined(separator: ", "))").font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .card()
         }
     }
 
     private var apps: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Что греет Mac").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            ForEach(m.rows.prefix(5)) { r in
-                HStack(spacing: 6) {
+        let top = Array(m.rows.sorted { $0.heat > $1.heat }.prefix(5))
+        return VStack(alignment: .leading, spacing: 0) {
+            CardTitle("Что греет Mac").padding(.bottom, 2)
+            if top.isEmpty {
+                Text("Собираю список процессов…").foregroundStyle(.secondary).padding(.vertical, 3)
+            }
+            ForEach(top) { r in
+                let share = m.heatShare(r)
+                HStack(spacing: 8) {
                     Image(nsImage: r.icon).resizable().frame(width: 16, height: 16)
-                    Text(r.name).lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 8)
-                    Text((r.estimated ? "≈" : "") + pct(m.heatShare(r))).monospacedDigit().foregroundStyle(.secondary)
-                        .help(wFine(r.heat))
+                    Text(r.name).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    LevelBar(fraction: max(share, 3) / 100, color: (share > 60 ? TempLevel.crit : share > 25 ? .hot : .warm).fill, height: 5)
+                        .frame(width: 44)
+                    Text((r.estimated ? "≈" : "") + wFine(r.heat)).monospacedDigit().foregroundStyle(.secondary)
+                        .frame(width: 58, alignment: .trailing)
+                        .help((r.estimated ? "≈" : "") + pct(share))
                 }
-                .font(.callout)
+                .padding(.vertical, 3)
             }
         }
+        .card()
+    }
+
+    private var fans: some View {
+        let rpm = m.fans.map(\.rpm).max() ?? 0
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    CardTitle("Вентиляторы")
+                    Text(rpm < 1 ? tr("стоят") : String(format: tr("%.0f об/мин"), rpm))
+                        .font(.system(size: 13, weight: .medium)).monospacedDigit()
+                }
+                Spacer()
+                FanSwitch(m: m).fixedSize()
+            }
+            if let message = m.fanMessage {
+                Text(message).font(.system(size: 11)).foregroundStyle(TempLevel.hot.text).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .card()
     }
 }

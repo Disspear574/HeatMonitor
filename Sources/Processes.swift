@@ -19,7 +19,6 @@ struct ProcessesView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let message = m.message {
                 Text(message).foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, Theme.edge).padding(.vertical, 8)
             }
             ProcessTable(m: m, selection: $selection, columns: $columns)
@@ -31,7 +30,7 @@ struct ProcessesView: View {
                 }
             Text(footnote)
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Theme.edge).padding(.vertical, 10)
         }
@@ -164,12 +163,14 @@ struct ProcessTable: View {
             .width(min: 180, ideal: 190)
             .customizationID("heat")
             TableColumn("CPU", value: \.cpuShare) { row in
-                Text(pct(row.cpuShare)).monospacedDigit()
+                // Machine share alone reads as idle: one busy core is about 5 % of 18.
+                (Text(pct(row.cpuShare)) + Text(verbatim: " · ").foregroundStyle(.secondary)
+                    + Text(String(format: tr("≈%.1f ядра"), row.cpu / 100)).foregroundStyle(.secondary))
+                    .monospacedDigit().lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
-                    .help(tr("CPU: 100% — весь процессор, а не одно ядро.") + " " + String(format: tr("≈%.1f ядра"), row.cpu / 100)
-                          + ". " + String(format: tr("По шкале одного ядра: %.1f%%."), row.cpu))
+                    .help(tr("CPU: 100% — весь процессор, а не одно ядро.") + " " + String(format: tr("По шкале одного ядра: %.1f%%."), row.cpu))
             }
-            .width(70)
+            .width(min: 110, ideal: 120)
             .customizationID("cpu")
             TableColumn("Время GPU", value: \.gpu) { row in
                 Text(pct(row.gpu)).monospacedDigit()

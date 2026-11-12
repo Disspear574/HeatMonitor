@@ -27,17 +27,10 @@ enum Theme {
     static let sidebarWidth: CGFloat = 212
     static let rowHeight: CGFloat = 28
 
-    static let cardTop = Color(light: 0xffffff, dark: 0x303035)
-    static let cardBottom = Color(light: 0xf5f5f7, dark: 0x29292d)
-    static let cardHighlight = Color(light: 0xffffff, dark: 0xffffff, lightAlpha: 0.9, darkAlpha: 0.10)
-    static let shadowNear = Color(light: 0x000000, dark: 0x000000, lightAlpha: 0.10, darkAlpha: 0.5)
-    static let shadowFar = Color(light: 0x000000, dark: 0x000000, lightAlpha: 0.07, darkAlpha: 0.30)
     static let track = Color(light: 0x000000, dark: 0xffffff, lightAlpha: 0.09, darkAlpha: 0.12)
 }
 
 extension TempLevel {
-    var word: String { NSLocalizedString(wordKey, tableName: "Status", comment: "") }
-
     // Darker shades in light mode keep text contrast on white.
     var text: Color {
         switch self {
@@ -58,7 +51,7 @@ extension TempLevel {
     }
 }
 
-/// Card with volume: one-tone gradient, a lit top edge and a two-layer shadow, no border.
+/// Card: translucent system fill that takes the window tint, a hairline edge, no shadow.
 private struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
@@ -66,13 +59,8 @@ private struct CardStyle: ViewModifier {
             .padding(.vertical, 12).padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                shape.fill(LinearGradient(colors: [Theme.cardTop, Theme.cardBottom], startPoint: .top, endPoint: .bottom))
-                    .overlay {
-                        shape.strokeBorder(LinearGradient(colors: [Theme.cardHighlight, .clear], startPoint: .top,
-                                                          endPoint: UnitPoint(x: 0.5, y: 0.12)), lineWidth: 1)
-                    }
-                    .shadow(color: Theme.shadowNear, radius: 1, y: 1)
-                    .shadow(color: Theme.shadowFar, radius: 8, y: 6)
+                shape.fill(Color(nsColor: .quaternarySystemFill))
+                    .overlay { shape.strokeBorder(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5) }
             }
     }
 }

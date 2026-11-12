@@ -38,6 +38,7 @@
 "0 Вт" = "0 W";
 "Адаптер" = "Adapter";
 "%.0f из %ld Вт" = "%.0f of %ld W";
+"адаптер %.0f из %ld Вт" = "adapter %.0f of %ld W";
 "не подключён" = "not connected";
 "На USB-C: %@" = "On USB-C: %@";
 "Питание: %@." = "Power: %@.";
@@ -205,6 +206,14 @@
 "диапазон %.0f–%.0f°" = "range %.0f–%.0f°";
 "Все процессы" = "All processes";
 "Своп" = "Swap";
+"Норма" = "Normal";
+"Боковая панель" = "Sidebar";
+"Показать или скрыть боковую панель" = "Show or hide the sidebar";
+"процессор загружен на %ld%%" = "CPU at %ld%%";
+"Греется" = "Warming up";
+"Горячо" = "Hot";
+"Очень горячо" = "Very hot";
+"Mac берёт %.0f Вт" = "Mac draws %.0f W";
 /* end Overview */
 
 /* Cooling */

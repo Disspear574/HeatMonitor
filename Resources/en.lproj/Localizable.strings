@@ -3,23 +3,17 @@
 /* Window and header */
 "Диспетчер тепла" = "Heat Monitor";
 "Температура CPU" = "CPU temperature";
-"Самое горячее ядро, среднее за 5 секунд" = "Hottest core, 5-second average";
 "пик за 5 с: %@" = "5 s peak: %@";
-"Температура CPU за последние 3 минуты" = "CPU temperature over the last 3 minutes";
 "Тепло" = "Heat";
 "Нагрузка" = "Load";
 "Питание" = "Power";
 "CPU средн." = "CPU avg";
 "Батарея" = "Battery";
 "Трекпад" = "Trackpad";
-"Датчики трекпада: поверхность и привод отклика" = "Trackpad sensors: surface and haptic actuator";
 "Вентиляторы" = "Fans";
-"Вентилятор" = "Fan";
 "нет" = "none";
 "стоят" = "stopped";
 "%.0f об/мин" = "%.0f rpm";
-"CPU · %lld ядер" = "CPU · %lld cores";
-"Доля времени, когда GPU занят. На низкой частоте лёгкая работа даёт десятки процентов; реальную нагрузку показывают ватты" = "Share of time the GPU is busy. At a low clock even light work shows tens of percent; watts show the real load";
 "Память" = "Memory";
 "%@ из %@ ГБ" = "%@ of %@ GB";
 "%.1f Вт" = "%.1f W";
@@ -34,17 +28,14 @@
 /* Thermal state */
 "Частоты не снижены" = "Full speed";
 "Слегка горячо" = "Slightly hot";
-"Оценка macOS: снижает ли система частоты из-за нагрева" = "macOS assessment: whether the system lowers clock speeds because of heat";
 "Горячо — частоты снижаются" = "Hot — clock speeds are lowered";
 "Критично" = "Critical";
 
 /* Power */
 "Заряд" = "Charge";
-"Батарея сейчас" = "Battery now";
 "+%.1f Вт" = "+%.1f W";
 "−%.1f Вт" = "−%.1f W";
 "0 Вт" = "0 W";
-"Потребляет" = "System draw";
 "Адаптер" = "Adapter";
 "%.0f из %ld Вт" = "%.0f of %ld W";
 "не подключён" = "not connected";
@@ -67,7 +58,6 @@
 "ещё %.1f Вт идёт из батареи." = "%.1f W more comes from the battery.";
 "Блок питания на пределе: %@ из %@ доступных." = "The power adapter is at its limit: %@ of %@ available.";
 "Быстрая зарядка: от адаптера %@ из %@ доступных, в батарею идёт +%.0f Вт." = "Fast charging: the adapter gives %@ of %@ available, +%.0f W goes to the battery.";
-"Сколько ватт идёт от адаптера и сколько доступно. Доступное Mac согласует с блоком питания: разъём может дать меньше, чем написано на блоке." = "Watts coming from the adapter and watts available. The Mac negotiates what is available with the power adapter: the port can give less than the adapter's label.";
 ", запас %.0f Вт" = ", %.0f W to spare";
 "Блока питания хватает: батарея заряжается на +%.1f Вт" = "The power adapter is enough: the battery charges at +%.1f W";
 "Подключено, но не заряжается: оптимизированная зарядка или лимит заряда в настройках." = "Plugged in but not charging: optimized charging or a charge limit in Settings.";
@@ -75,20 +65,12 @@
 
 /* What heats the Mac */
 "графика тратит %.0f Вт" = "GPU draws %.0f W";
-"процессор загружен на %ld%%" = "CPU at %ld%%";
 "быстрая зарядка +%.0f Вт" = "fast charging +%.0f W";
-"macOS уже снижает частоты" = "macOS is already lowering clock speeds";
 "Нагрузка маленькая — сейчас ничего не греет" = "Load is low — nothing is heating the Mac now";
-"Греет: %@" = "Heating: %@";
 "Что греет Mac" = "What heats the Mac";
-"нагрев = доля от максимума CPU и GPU (%@ Вт); ≈ — оценка" = "heat = share of the CPU and GPU maximum (%@ W); ≈ is an estimate";
-"%@ — %@ от максимума" = "%@ — %@ of the maximum";
-"%@ — %@ нагрева" = "%@ — %@ of the heat";
 "нагрев = доля в общей нагрузке CPU и GPU; ≈ — оценка" = "heat = share of the total CPU and GPU load; ≈ is an estimate";
-"нагрев = доля от наибольшей замеченной нагрузки (%@ Вт); ≈ — оценка" = "heat = share of the highest load seen (%@ W); ≈ is an estimate";
 "От максимума" = "Of maximum";
 "От общей" = "Of total";
-"От максимума: какую часть полной мощности CPU и GPU берёт процесс. От общей: его доля в текущей нагрузке, вместе 100%." = "Of maximum: how much of the full CPU and GPU power the process takes. Of total: its share of the current load, adding up to 100%.";
 "Нагрев процессов" = "Process heat";
 "Доля от максимума Mac" = "Share of the Mac's maximum";
 "Доля от общей нагрузки" = "Share of the total load";
@@ -108,7 +90,6 @@
 "%.0f МБ" = "%.0f MB";
 "процессов: %ld" = "processes: %ld";
 "Найти в интернете, что это" = "Search the web for what this is";
-"Найти в интернете" = "Search the web";
 "Показать в Finder" = "Show in Finder";
 "Завершить «%@»" = "Quit “%@”";
 "Завершить" = "Quit";
@@ -205,7 +186,6 @@
 /* Load explanation */
 "≈%.1f ядра" = "≈%.1f cores";
 "По шкале одного ядра: %.1f%%." = "On the single-core scale: %.1f%%.";
-"нагрев — доля учтённой энергии CPU и GPU, не загрузка CPU; ≈ — оценка" = "heat is a share of accounted CPU and GPU energy, not CPU utilization; ≈ means estimated";
 
 /* Sections of the main window: each track adds its lines above its own end marker. */
 

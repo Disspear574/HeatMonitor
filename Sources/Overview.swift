@@ -313,7 +313,7 @@ private struct FanMiniCard: View {
                 .font(.system(size: 17, weight: .semibold)).monospacedDigit()
                 .padding(.bottom, 8)
             FanSwitch(m: m)
-            if let message = m.message {
+            if let message = m.fanMessage {
                 Text(message).font(.system(size: 11)).foregroundStyle(TempLevel.hot.text)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 4)
             }

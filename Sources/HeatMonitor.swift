@@ -792,8 +792,6 @@ final class Monitor {
     private(set) var heatCeiling = Monitor.measuredCeiling ?? max(UserDefaults.standard.double(forKey: "heatCeiling"), 30)
     // Watts of every listed process: 100% heat when shares are taken of the total.
     private(set) var heatTotal = 0.0
-    private(set) var sampledCPU = 0.0
-    private(set) var sampledRows = 0
     nonisolated static let measuredCeiling = maxWattsByChip[chipName()]
     var heatBase: HeatBase {
         (HeatBase(rawValue: UserDefaults.standard.string(forKey: Pref.heatBase) ?? "") ?? .auto).resolved(measured: Self.measuredCeiling != nil)
@@ -811,6 +809,7 @@ final class Monitor {
     var palmRest: [Double] = []
     var thermal = ProcessInfo.processInfo.thermalState
     var message: String?
+    var fanMessage: String?
     var fanBusy = false
     var fanTarget: Bool?
     var grouped = true { didSet { rebuild() } }
@@ -1014,7 +1013,7 @@ final class Monitor {
             Task { @MainActor in
                 if max && !ok, let flag = self?.fanFlag { try? FileManager.default.removeItem(atPath: flag) }
                 self?.fanDone(ok: ok)
-                self?.message = ok ? nil : why.contains("-128") ? tr("Вентиляторы не переключены: пароль не введён.")
+                self?.fanMessage = ok ? nil : why.contains("-128") ? tr("Вентиляторы не переключены: пароль не введён.")
                     : String(format: tr("Вентиляторы не переключены: %@"),
                              why.isEmpty ? "osascript \(p.terminationStatus)" : why.trimmingCharacters(in: .whitespacesAndNewlines))
             }
@@ -1131,8 +1130,6 @@ final class Monitor {
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) { rows = Array(r.prefix(40)) }
-        sampledCPU = r.reduce(0) { $0 + $1.cpuShare }
-        sampledRows = r.count
         let total = r.reduce(0) { $0 + $1.heat }
         heatTotal = total
         if Self.measuredCeiling == nil, total > heatCeiling {
@@ -1147,16 +1144,6 @@ final class Monitor {
 
     func heatShare(_ r: Row) -> Double { heatPercent(r.heat, of: heatBase, ceiling: heatCeiling, total: heatTotal) }
 
-    var heatCaption: String {
-        let watts = String(format: "%.0f", heatCeiling)
-        switch heatBase {
-        case .total: return tr("нагрев — доля учтённой энергии CPU и GPU, не загрузка CPU; ≈ — оценка")
-        case _ where Self.measuredCeiling == nil:
-            return String(format: tr("нагрев = доля от наибольшей замеченной нагрузки (%@ Вт); ≈ — оценка"), watts)
-        default: return String(format: tr("нагрев = доля от максимума CPU и GPU (%@ Вт); ≈ — оценка"), watts)
-        }
-    }
-
     func search(_ row: Row) {
         var c = URLComponents(string: "https://www.google.com/search")!
         c.queryItems = [URLQueryItem(name: "q", value: "\(row.name) " + tr("процесс macOS что это и почему грузит систему"))]
@@ -1168,20 +1155,6 @@ final class Monitor {
         message = failed.count == row.pids.count
             ? String(format: tr("«%@» — системный процесс, завершить его можно только с правами администратора."), row.name)
             : nil
-    }
-
-    var heatReason: String {
-        var parts: [String] = []
-        if let top = rows.max(by: { $0.heat < $1.heat }), top.heat >= 1 {
-            parts.append(String(format: tr(heatBase == .maximum ? "%@ — %@ от максимума" : "%@ — %@ нагрева"),
-                                top.name, (top.estimated ? "≈" : "") + pct(heatShare(top))))
-        }
-        // GPU busy percent reads high at idle clocks, so only real power counts here.
-        if let g = gpuWatts, g >= 5 { parts.append(String(format: tr("графика тратит %.0f Вт"), g)) }
-        if cpuUsage >= 60 { parts.append(String(format: tr("процессор загружен на %ld%%"), Int(cpuUsage))) }
-        if let w = battery?.batteryW, w > 15 { parts.append(String(format: tr("быстрая зарядка +%.0f Вт"), w)) }
-        if thermal == .serious || thermal == .critical { parts.append(tr("macOS уже снижает частоты")) }
-        return parts.isEmpty ? tr("Нагрузка маленькая — сейчас ничего не греет") : String(format: tr("Греет: %@"), parts.joined(separator: " · "))
     }
 }
 
@@ -1381,24 +1354,24 @@ func adapterStatus(_ b: SystemInfo.Battery) -> (String, String, Color) {
     if let v = b.batteryW, adapterShort(batteryW: v, adapterInW: b.adapterInW, adapterMaxW: b.adapterMaxW) {
         return ("exclamationmark.triangle.fill",
                 String(format: tr("Блока питания не хватает: Mac берёт %@, от адаптера приходит %@ из %@ доступных, "), w(b.systemW), w(b.adapterInW), rated)
-                + String(format: tr("ещё %.1f Вт идёт из батареи."), -v), .orange)
+                + String(format: tr("ещё %.1f Вт идёт из батареи."), -v), TempLevel.hot.text)
     }
     if let inW = b.adapterInW, let max = b.adapterMaxW, inW >= Double(max) * 0.9 {
         // The battery takes the surplus, and macOS slows charging before the Mac itself runs short.
         if let v = b.batteryW, v > 5 {
-            return ("bolt.fill", String(format: tr("Быстрая зарядка: от адаптера %@ из %@ доступных, в батарею идёт +%.0f Вт."), w(inW), rated, v), .green)
+            return ("bolt.fill", String(format: tr("Быстрая зарядка: от адаптера %@ из %@ доступных, в батарею идёт +%.0f Вт."), w(inW), rated, v), TempLevel.ok.text)
         }
-        return ("exclamationmark.circle", String(format: tr("Блок питания на пределе: %@ из %@ доступных."), w(inW), rated), .yellow)
+        return ("exclamationmark.circle", String(format: tr("Блок питания на пределе: %@ из %@ доступных."), w(inW), rated), TempLevel.warm.text)
     }
     var spare = ""
     if let max = b.adapterMaxW, let inW = b.adapterInW { spare = String(format: tr(", запас %.0f Вт"), Double(max) - inW) }
     if let v = b.batteryW, v > 0.3 {
-        return ("bolt.fill", String(format: tr("Блока питания хватает: батарея заряжается на +%.1f Вт"), v) + spare + ".", .green)
+        return ("bolt.fill", String(format: tr("Блока питания хватает: батарея заряжается на +%.1f Вт"), v) + spare + ".", TempLevel.ok.text)
     }
     if !b.charging, let p = b.percent, p < 95 {
         return ("pause.circle", tr("Подключено, но не заряжается: оптимизированная зарядка или лимит заряда в настройках."), .secondary)
     }
-    return ("checkmark.circle", String(format: tr("Блока питания хватает: доступно %@"), rated) + spare + ".", .green)
+    return ("checkmark.circle", String(format: tr("Блока питания хватает: доступно %@"), rated) + spare + ".", TempLevel.ok.text)
 }
 
 /// Raw dump of every temperature sensor, for finding the right keys on another Mac model.

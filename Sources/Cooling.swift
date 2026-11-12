@@ -88,7 +88,7 @@ private struct FanCard: View {
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 10)
-            if let message = m.message {
+            if let message = m.fanMessage {
                 Text(message).font(.system(size: 11)).foregroundStyle(TempLevel.hot.text)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 4)
             }

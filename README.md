@@ -18,7 +18,7 @@
 <br>
 
 <p align="center">
-  <img src="docs/images/hero-en.png" alt="The main window with temperatures and the process list, and the Advice tab">
+  <img src="docs/images/hero-en.png" alt="The Overview and Power sections of the Heat Monitor window">
 </p>
 
 Click the thermometer in the menu bar, look, click away. Heat Monitor reads the sensors only
@@ -26,33 +26,44 @@ while you look, makes no network requests, and needs no administrator password t
 
 ## Features
 
-- **Menu bar.** The thermometer opens a compact panel: CPU temperature with a chart, sensors,
-  load, memory and swap, power, the five hottest apps and the fan switch. See [Menu bar](#menu-bar).
-- **CPU temperature.** The hottest core, averaged over 5 seconds, with the 5-second peak and a
-  3-minute chart.
-- **Heat sensors.** Average CPU core, GPU, SSD, battery, trackpad and fan speed.
-- **What heats the Mac.** Apps or single processes sorted by heat: their CPU plus GPU watts, shown
-  as a share of the Mac's full-load maximum or of the current total.
-  Right-click a row to search the web for it, show it in Finder or quit it.
-- **Power.** Charge, battery flow, system draw and the adapter's input against what it can give.
-  One line says whether the adapter keeps up or the battery drains while plugged in.
-- **Fans.** Switch between Auto and Max. See [Fans](#fans).
+The window has a sidebar with five sections. Each sidebar row shows one live value: the hottest
+app, the CPU temperature, the Mac's draw, the number of advice findings.
+
+- **Overview.** One card answers three questions: how hot the Mac is, what heats it, and whether
+  the adapter keeps up. Click a line to open its section. Below it sit the CPU temperature on a
+  color scale with the 5-second peak and a 3-minute chart, the hottest apps, and small cards for
+  power, load and fans.
+- **Processes.** Apps or single processes sorted by heat: their CPU plus GPU watts, shown as a
+  share of the Mac's full-load maximum or of the current total. Right-click a row to search the
+  web for it, show it in Finder or quit it.
+- **Cooling.** The hottest CPU core with its 5-second peak, the core average, GPU, SSD, battery
+  and trackpad sensors, and the fan switch. See [Fans](#fans). **All sensors…** lists every
+  temperature sensor and copies them all.
+- **Power.** The adapter, the Mac and the battery in one row, with the watts flowing between
+  them. A verdict says whether the adapter keeps up, and a second line names what limits it.
+  See [Power](#power).
 - **Advice.** Finds a WindowServer that has not restarted for days, background services stuck in
-  a loop, and simulators, emulators and Gradle daemons left after a build.
-- **All sensors.** A raw list of every temperature sensor with a button that copies them all.
+  a loop, and simulators, emulators and Gradle daemons left after a build. See [Advice](#advice).
+- **Menu bar panel.** The same readings in a compact panel. See [Menu bar](#menu-bar).
 - **English and Russian.** The interface follows the system language.
 
 <details>
 <summary>Full-size screenshots</summary>
 <br>
-<img src="docs/images/main-en.png" alt="Main window">
-<img src="docs/images/advice-en.png" alt="Advice tab">
+<img src="docs/images/main-en.png" alt="Overview section">
+<img src="docs/images/processes-en.png" alt="Processes section">
+<img src="docs/images/power-en.png" alt="Power section">
+<img src="docs/images/advice-en.png" alt="Advice section">
 </details>
 
 ## Menu bar
 
 Heat Monitor starts in the menu bar, without a window or a Dock icon. Left click opens the
 panel; right click offers Open Heat Monitor and Quit. Closing the window keeps the app running.
+
+The panel shows the CPU temperature with a chart, the sensors, load, memory and swap, power, the
+five hottest apps and the fan switch. When the adapter falls short, the power block names the
+cause too.
 
 <p align="center">
   <img src="docs/images/label-en.png" width="224" alt="Menu bar label with CPU and GPU temperature, fan speed and power draw"><br><br>
@@ -68,6 +79,7 @@ Settings (the gear in the panel, or ⌘,):
 | Values | CPU temperature, GPU temperature, fan speed, Mac power draw, CPU load | CPU temperature |
 | Panel | Temperature and chart, sensors, load, power, what heats the Mac, fans | all on |
 | Process heat | Share of the Mac's maximum, share of the total load | maximum where measured, otherwise total |
+| Limiter | Limit listed processes; when the adapter falls short; when the CPU is hotter than 80–105° | off; both triggers on, 95° |
 
 ## Install
 
@@ -86,9 +98,40 @@ Settings (the gear in the panel, or ⌘,):
 **Requirements:** a Mac with Apple Silicon (M1 or later) and macOS 14 or later. Intel Macs are
 not supported.
 
+## Power
+
+The flow card puts the adapter, the Mac and the battery in one row: what the adapter gives
+against what it agreed to give, what the Mac draws, and how many watts go into the battery or
+come out of it. The verdict above it says whether the adapter is enough, at its limit, or not
+enough, and a bar shows the adapter's load. Below the flow you see the power source, the USB-C
+devices and the battery's health, cycles and temperature.
+
+When the adapter delivers less than you expect, a line under the flow names the cause:
+
+| Cause | How Heat Monitor knows | What it says |
+|---|---|---|
+| The cable | The USB-C cable's e-marker reports less than 240 W, and the Mac gets at least 90 % of that | The cable's rating, and that more power needs a 240 W (EPR) USB-C cable |
+| The cable, no e-marker data | The adapter's name carries its rating, and the Mac got less than 90 % of it | The adapter's rating against what the Mac got |
+| A weak adapter | Neither of the above | The adapter gives N W, too weak for this load |
+
+A cable limit shows at any load. A weak adapter shows only while the battery covers the gap.
+Over MagSafe the cable is Apple's, so Heat Monitor never blames it.
+
+**Low Power on the adapter.** The Energy mode card shows the mode macOS uses on the adapter.
+While the adapter falls short, it suggests turning on Low Power, with the cause under the
+suggestion. The button runs `pmset -c powermode 1`, and macOS asks for the administrator
+password; Heat Monitor never sees or stores it. **Back to Automatic** undoes it.
+
+**Limiter** (Settings, off by default). When the adapter falls short or the CPU passes the
+threshold for a set time (1–15 min, 3 by default), Heat Monitor moves your processes that match
+the list to background priority with `taskpolicy -b`. They run slower and never stop. Once the
+load is gone, the same wait passes and the priority comes back. A notification tells you each
+time. The default list holds simulators, emulators, Gradle and Kotlin daemons, `swift-frontend`
+and `xcodebuild`, one pattern per line.
+
 ## Fans
 
-The **Auto / Max** switch is the only part of the app that writes to the Mac.
+The **Auto / Max** switch is the only part of the app that writes to the SMC.
 
 - **Max** asks for an administrator password. The bundled `heatmonitor-fan` tool then sets every
   fan to its maximum speed through the SMC.
@@ -102,7 +145,8 @@ The app never sets the fans below what macOS asks for. Fanless Macs do not show 
 
 ## Advice
 
-The tab runs its checks every 5 seconds, and only while it is open.
+The section runs its checks every 5 seconds while you look at it. With the window open, the
+number of findings in the sidebar updates once a minute.
 
 | Check | What it looks for | What you can do |
 |---|---|---|
@@ -117,9 +161,12 @@ flowchart TB
     Read["<b>Read without root</b><br/>SMC keys · IOHID sensors · IOReport GPU energy<br/>IOAccelerator clients · top · AppleSmartBattery"]
     Read --> Monitor["Monitor<br/>Sources/HeatMonitor.swift"]
     PS["ps, every 5 s"] --> Advice["Advice tab<br/>Sources/Advice.swift"]
-    Monitor --> Window[Window]
+    Monitor --> Window["Window, five sections<br/>Sources/MainWindow.swift"]
     Monitor --> Panel["Menu bar panel<br/>Sources/MenuBar.swift"]
+    Monitor --> Limiter["Limiter, optional<br/>Sources/Limiter.swift"]
     Advice --> Window
+    Window -- "Low Power, admin password" --> Pmset["pmset -c powermode"]
+    Limiter -- "taskpolicy -b / -B" --> Procs[Your processes]
     Window -- "Max, admin password" --> Fan["heatmonitor-fan, root<br/>Sources/FanTool/main.swift"]
     Fan -- "fan mode keys" --> Fans[SMC fans]
     Fan -. "app quits: back to Auto" .-> Fans
@@ -137,6 +184,8 @@ flowchart TB
 | Per-process GPU | the app's GPU energy, split by the GPU time of each `IOAccelerator` user client |
 | Processes | one long-running `top` |
 | Battery and adapter | `AppleSmartBattery` and IOKit power sources |
+| USB-C cable rating | the cable's e-marker (USB PD Discover Identity, `SOP'` under the port's `IOPort`) |
+| Energy mode on the adapter | `pmset -g custom` |
 | Advice | `ps` while the tab is open; offscreen windows from `CGWindowListCopyWindowInfo` |
 
 Some of these are private macOS interfaces, so the app cannot be sold in the Mac App Store.
@@ -159,25 +208,30 @@ Some of these are private macOS interfaces, so the app cannot be sold in the Mac
   the adapter. Over MagSafe it can be lower than the rating.
 - Heat Monitor polls processes and sensors only while the panel or the window is open, and for
   60 seconds after you close them. In between it uses no CPU. The live label reads a few SMC
-  keys every 5 seconds, about 0.1 % of one core.
+  keys every 5 seconds, about 0.1 % of one core. The limiter, when you turn it on, reads the CPU
+  temperature and the power every 30 seconds.
 
 ## Build
 
 ```bash
 ./scripts/build.sh      # build/HeatMonitor.app
 ./scripts/make-dmg.sh   # build/HeatMonitor.dmg
-./scripts/test.sh       # menu bar logic tests
+./scripts/test.sh       # logic tests: menu bar, power advice, limiter
 ```
 
 Needs the Xcode command line tools. The version lives in `Resources/Info.plist`.
 
 | Path | What it is |
 |---|---|
-| `Sources/HeatMonitor.swift` | The window and all readings |
+| `Sources/HeatMonitor.swift` | All readings, the fan switch and the sensors window |
+| `Sources/MainWindow.swift` | The window and its sidebar |
+| `Sources/Overview.swift`, `Processes.swift`, `Cooling.swift`, `Power.swift` | The window sections |
+| `Sources/Advice.swift` | The Advice section |
+| `Sources/PowerAdvice.swift`, `EnergyMode.swift` | What limits the adapter power, Low Power on the adapter |
+| `Sources/Limiter.swift`, `LimiterLogic.swift` | The optional limiter |
 | `Sources/MenuBar.swift` | The menu bar item and its panel |
 | `Sources/Settings.swift` | Settings |
 | `Sources/MenuLogic.swift` | Label values and polling rules; tests in `Tests/` |
-| `Sources/Advice.swift` | The Advice tab |
 | `Sources/FanTool/main.swift` | The root-only fan switch |
 | `Resources/` | Info.plist, icon, `en.lproj` and `ru.lproj` strings |
 | `scripts/` | Build, DMG, icon and README image generators |

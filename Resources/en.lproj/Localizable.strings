@@ -247,6 +247,15 @@
 /* end Processes */
 
 /* Power */
+"Mac потребляет" = "Mac draws";
+"Батарея %lld%%" = "Battery %lld%%";
+"Адаптер загружен на %lld%%" = "Adapter at %lld%% load";
+"Источник и порты" = "Source and ports";
+"от батареи" = "from the battery";
+"Устройств USB-C нет" = "No USB-C devices";
+"Осталось" = "Time left";
+"Температура" = "Temperature";
+"Нет данных о батарее" = "No battery data";
 /* end Power */
 
 /* Advice */
